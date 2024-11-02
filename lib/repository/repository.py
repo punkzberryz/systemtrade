@@ -35,7 +35,7 @@ class Repository():
     
     def add_instruments_by_codes(self,
                                 symbols:List[str],
-                                fetch_data:str = "yfinance",
+                                fetch_data:str = None,
                                 start_date:str = None,
                                 end_date:str = None):
         for symbol in symbols:
