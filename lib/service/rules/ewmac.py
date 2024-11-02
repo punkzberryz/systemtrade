@@ -1,4 +1,5 @@
 from lib.service.vol import robust_vol_calc
+from lib.repository.repository import Instrument
 import pandas as pd
 
 def ewmac_forecast_with_defaults(price: pd.Series, Lfast:float =32, Lslow:float =128):
@@ -86,7 +87,7 @@ def ewmac_calc_vol(price, Lfast, Lslow, vol_days=35):
 
     return forecast
 
-def ewmac(price: pd.Series, vol: pd.Series, Lfast: float, Lslow: float) -> pd.Series:
+def ewmac(price: pd.Series, vol: pd.Series, Lfast: float, Lslow: float, **kwargs) -> pd.Series:
     """
     Calculate the ewmac trading rule forecast, given a price, volatility and EWMA speeds Lfast and Lslow
 
@@ -132,3 +133,7 @@ def ewmac(price: pd.Series, vol: pd.Series, Lfast: float, Lslow: float) -> pd.Se
     raw_ewmac = fast_ewma - slow_ewma
 
     return raw_ewmac / vol.ffill()
+
+def ewmac_forecast(instrument: Instrument, Lfast: float, Lslow: float, **kwargs) -> pd.Series:
+    forecast = ewmac(instrument.data["PRICE"], instrument.vol, Lfast, Lslow)
+    return forecast
