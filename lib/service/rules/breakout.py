@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-
+from lib.repository.repository import Instrument
 
 def breakout(price: pd.Series, lookback: int = 10, smooth: int = None):
     """
@@ -43,3 +43,7 @@ def breakout(price: pd.Series, lookback: int = 10, smooth: int = None):
     smoothed_output = output.ewm(span=smooth, min_periods=np.ceil(smooth / 2.0)).mean()
 
     return smoothed_output
+
+def breakout_forecast(instrument: Instrument, lookback: int = 10, smooth: int = None, **kwargs) -> pd.Series:
+    forecast = breakout(instrument.data["PRICE"], lookback=lookback, smooth=smooth)
+    return forecast

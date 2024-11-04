@@ -25,8 +25,7 @@ class Instrument(DataFetcher):
 
             
 class Repository():
-    def __init__(self):
-        self.data = pd.DataFrame()
+    def __init__(self):        
         self._pathname = "data/"
         self.instruments: dict[Instrument] = {}
 
@@ -34,12 +33,8 @@ class Repository():
         symbol = instrument.symbol
         if instrument.data is None:
             raise Exception("Instrument of {} is empty. Fetch data first.".format(symbol))
-        # add instrument to data to self.data        
-        self.data[symbol] = instrument.data["PRICE"]
+        # add instrument to data to self.data                
         self.instruments[symbol] = instrument
-
-    def get_instrument_list(self):
-        return self.data.columns.tolist()
     
     def add_instruments_by_codes(self,
                                 symbols:List[str],
@@ -69,7 +64,7 @@ class Repository():
     def get_instrument(self, symbol:str) -> Instrument:
         return  self.instruments[symbol]
 
-    def get_instrument_prices(self, codes:List[str]) -> pd.DataFrame:
+    def get_instrument_prices(self, codes:List[str]) -> pd.DataFrame:    
         if len(codes) == 0:
             raise Exception("No instrument codes provided")
         priceList = []
@@ -78,3 +73,6 @@ class Repository():
             price.name = code  # Use .name instead of .rename()
             priceList.append(price)          
         return pd.concat(priceList, axis=1)
+    
+    def get_instrument_list(self) -> List[Instrument]:
+        return list(self.instruments.values())
