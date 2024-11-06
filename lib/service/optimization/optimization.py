@@ -15,7 +15,13 @@ def generate_fitting_dates(data : pd.DataFrame, date_method: str, rollyears=20) 
     
     date_method can be one of 'in_sample', 'expanding', 'rolling'
     
-    if 'rolling' then use rollyears variable  
+    if 'rolling' then use rollyears variable 
+    
+    note that:
+    fit_tuple[0] is the fit start date
+    fit_tuple[1] is the fit end date
+    fit_tuple[2] is the period start date
+    fit_tuple[3] is the period end date 
     """
     
     start_date: datetime=data.index[0]
@@ -92,6 +98,8 @@ def markosolver(returns: pd.DataFrame, equalisemeans=False, equalisevols=True, d
     bounds=[(0.0,1.0)]*number_assets
     cdict=[{'type':'eq', 'fun':addem}]
     
+    # we actually want to maximize SR, but algo only produce minimization
+    # so we make sr negative and try to minimize it
     ans=minimize(neg_SR, start_weights, (sigma, mus), method='SLSQP', bounds=bounds, constraints=cdict, tol=0.00001)
         
     return ans['x']

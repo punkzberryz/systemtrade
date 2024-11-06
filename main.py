@@ -1,140 +1,193 @@
 from lib.repository.repository import Repository, Instrument
-from lib.service.rules.rules import Rules
+from lib.util.object import get_methods
 from lib.service.rules.trading_rules import TradingRule
-from lib.service.rules.ewmac import ewmac_calc_vol, ewmac
-from lib.service.rules.breakout import breakout
-from lib.util.pandas.strategy_functions import replace_all_zeros_with_nan
-from lib.service.forecast_scale_cap import forecast_scalar, group_forecasts, get_capped_forecast
-from lib.service.optimization.optimization import generate_fitting_dates, bootstrap_portfolio, optimise_over_periods, markosolver, opt_and_plot
-import matplotlib.pyplot as plt
-from lib.service.forecast_combine import *
-
-# if __name__ == "__main__":
-    # repo = Repository("AAPL")
-    # repo.fetch_yf_data()
-    
-aapl = Instrument("AAPL")
-# start_date = "2020-01-01"
-start_date = "2007-01-01"
-# aapl.fetch_yf_data(start_date=start_date)
-# aapl.export_data("aapl_data.csv")
-aapl.import_data("./data/aapl_data.csv")
-meta = Instrument("META")
-meta.import_data("./data/meta_data.csv")
-ba = Instrument("BA")
-ba.import_data("./data/ba_data.csv")
-eurd = Instrument("EURUSD=X")
-eurd.import_data("./data/euro_dollar_data.csv")
-us30 = Instrument("^TYX")
-us30.import_data("./data/us30_data.csv")
-sp500 = Instrument("^GSPC")
-sp500.import_data("./data/sp500_data.csv")
-
-
+from lib.service.rules.rules import Rules
+from lib.service.rules.ewmac import ewmac_forecast
+from lib.service.rules.breakout import breakout_forecast
+from matplotlib import pyplot as plt
+from lib.service.account.pandl_calculations.pandl_for_instrument_forecast import  get_position_from_forecast
+from lib.service.vol import robust_daily_vol_given_price
+import pandas as pd
+import numpy as np
+import datetime
+from lib.service.optimization.optimization import markosolver, opt_and_plot, optimise_over_periods
+from scipy.optimize import minimize
+from lib.service.account.pandl_calculations.pandl_calculation import pandl_calculation
+from lib.service.account.curves.account_curve import AccountCurve
+from lib.util.frequency import Frequency
+from lib.service.optimization.optimization import generate_fitting_dates
+from lib.util.constants import arg_not_supplied
+from lib.service.estimators.correlations import get_correlations
+from lib.service.forecast_combine.diversification_multiplier import get_diversification_multiplier
+from lib.service.forecast_combine.forecast_combine import combine_forecasts_for_instrument
 repo = Repository()
-for instr in [aapl, meta, ba, us30, eurd, sp500]:    
-    repo.add_instrument(instr)
+# repo.add_instruments_by_codes(["AAPL", "MSFT", "GOOGL", "^GSPC"], fetch_data="yfinance", start_date="2008-01-01")
+repo.add_instruments_by_codes(["AAPL", "MSFT", "GOOGL", "^GSPC", "^TYX", "EURUSD=X"], start_date="2008-01-01")
+repo.get_instrument_list()
+rule = TradingRule("ewma64_256", rule_func= lambda instrument : ewmac_forecast(instrument=instrument, Lfast=64, Lslow=256) , rule_arg={"Lfast": 64, "Lslow": 256})
+aapl: Instrument = repo.instruments["AAPL"] 
+
+instrument_codes = repo.instrument_codes
+instr_list = repo.get_instrument_list()
+rule.call_forecast(instr_list)
+
+rule_list = [{ "name": "ewma64_256", "rule_func": lambda instrument : ewmac_forecast(instrument=instrument, Lfast=64, Lslow=256), "rule_arg": {"Lfast": 64, "Lslow": 256}},             
+             { "name": "ewma16_64", "rule_func": lambda instrument : ewmac_forecast(instrument=instrument, Lfast=16, Lslow=64), "rule_arg": {"Lfast": 16, "Lslow": 64}},
+             { "name": "ewma8_32", "rule_func": lambda instrument : ewmac_forecast(instrument=instrument, Lfast=8, Lslow=32), "rule_arg": {"Lfast": 8, "Lslow": 32}},
+             { "name": "breakout20", "rule_func": lambda instrument : breakout_forecast(instrument, lookback=20), "rule_arg": {"lookback": 20}},]
+
+rules = Rules(rule_list=rule_list, instrument_list=instr_list)
+# let's plot some forecast
+
+aapl_forecast_ewma64_256 = rules.get_forecast("AAPL", "ewma64_256")
+aapl_forecast_ewma16_64 = rules.get_forecast("AAPL", "ewma16_64")
+aapl_forecast_ewma8_32 = rules.get_forecast("AAPL", "ewma8_32")
+aapl_forecast_breakout20 = rules.get_forecast("AAPL", "breakout20")
+aapl_price = repo.get_instrument("AAPL").data["PRICE"]
+aapl_vol = repo.get_instrument("AAPL").vol
+SR_cost = 0.01
+
+# next we want to calculate the P&L for each forecast, then we can later optimize the weights
+aapl_forecast_ewma64_256_pos = get_position_from_forecast(forecast=aapl_forecast_ewma64_256, price=aapl_price, daily_returns_volatility=aapl_vol, capital=1e3)
+aapl_forecast_ewma64_256_pandl = pandl_calculation(instrument_price=aapl_price, positions=aapl_forecast_ewma64_256_pos, capital=1e3, SR_cost=SR_cost, frequency=Frequency.BDay)
+aapl_account_ewma64_256 = AccountCurve(aapl_forecast_ewma64_256_pandl, frequency=Frequency.BDay)
+aapl_forecast_ewma16_64_pos = get_position_from_forecast(forecast=aapl_forecast_ewma16_64, price=aapl_price, daily_returns_volatility=aapl_vol, capital=1e3)
+aapl_forecast_ewma16_64_pandl = pandl_calculation(instrument_price=aapl_price, positions=aapl_forecast_ewma16_64_pos, capital=1e3, SR_cost=SR_cost, frequency=Frequency.BDay)
+aapl_account_ewma16_64 = AccountCurve(aapl_forecast_ewma16_64_pandl, frequency=Frequency.BDay)
+aapl_forecast_ewma8_32_pos = get_position_from_forecast(forecast=aapl_forecast_ewma8_32, price=aapl_price, daily_returns_volatility=aapl_vol, capital=1e3)
+aapl_forecast_ewma8_32_pandl = pandl_calculation(instrument_price=aapl_price, positions=aapl_forecast_ewma8_32_pos, capital=1e3, SR_cost=SR_cost, frequency=Frequency.BDay)
+aapl_account_ewma8_32 = AccountCurve(aapl_forecast_ewma8_32_pandl, frequency=Frequency.BDay)
+aapl_forecast_breakout20_pos = get_position_from_forecast(forecast=aapl_forecast_breakout20, price=aapl_price, daily_returns_volatility=aapl_vol, capital=1e3)
+aapl_forecast_breakout20_pandl = pandl_calculation(instrument_price=aapl_price, positions=aapl_forecast_breakout20_pos, capital=1e3, SR_cost=SR_cost, frequency=Frequency.BDay)
+aapl_account_breakout20 = AccountCurve(aapl_forecast_breakout20_pandl, frequency=Frequency.BDay)
+
+#let's combine the forecasts
+
+returns = pd.concat([aapl_forecast_ewma64_256_pandl, aapl_forecast_ewma16_64_pandl, aapl_forecast_ewma8_32_pandl, aapl_forecast_breakout20_pandl], axis=1)
+returns.columns = ["ewma64_256", "ewma16_64", "ewma8_32", "breakout20"]
+forecasts = pd.concat([aapl_forecast_ewma64_256, aapl_forecast_ewma16_64, aapl_forecast_ewma8_32, aapl_forecast_breakout20], axis=1)
+forecasts.columns = ["ewma64_256", "ewma16_64", "ewma8_32", "breakout20"]
+
+combined_forecast = combine_forecasts_for_instrument(forecast_returns=returns, forecasts=forecasts, fit_method="one_period", max_forecast_cap=20.0)
+combined_pos = get_position_from_forecast(forecast=combined_forecast, price=aapl_price, daily_returns_volatility=aapl_vol, capital=1e3)
+combined_pandl = pandl_calculation(instrument_price=aapl_price, positions=combined_pos, capital=1e3, SR_cost=SR_cost, frequency=Frequency.BDay)
+combined_account = AccountCurve(combined_pandl, frequency=Frequency.BDay)
 
 
-#warm-up
 
-# forecast us30
-vol = us30.daily_returns_volatility()
-#get raw price
-price = us30.data["PRICE"]
-# forecast with trading rule
-raw_forecast = ewmac(price, Lfast=32, Lslow=128, vol=vol)
-# replace all zero values with NaN
-raw_forecast = replace_all_zeros_with_nan(raw_forecast)
+'''
+# correlation estimator for subperiod
+if floor_at_zero:
+    corr_matrix_values[corr_matrix_values < 0] = 0
+if clip is not arg_not_supplied:    
+    ### clip upper values
+    corr_matrix_values[corr_matrix_values > clip] = clip
+    ### clip lower values
+    corr_matrix_values[corr_matrix_values < -clip] = -clip
+# calculate forecast diversification multiplier from 1 / (sqrt( W x H x W^T))
+#convert weight index to datetime
+weights.index = pd.to_datetime(weights.index)
+weights.resample("B").sum()
+weights_0 = weights.iloc[0]
+h = corr_matrix_values
 
-cs_forecasts = group_forecasts([raw_forecast])
-# cs_forecasts = group_forecasts([raw_forecast, aapl_forecast, meta_forecast])
-# scaled the forecast
-scalar = forecast_scalar(cs_forecasts)
-scaled_forecast = raw_forecast * scalar
-# capped the forecast to be between -20 and 20
-capped_scaled_forecast = get_capped_forecast(scaled_forecast)
-
-
-# step 1: list instruments we want to forecast
-# we use 3 instruments: EU-DOLLAR-X, META, US30
-
-# step 2: select trading rule(s) for each instrument
-# for EU-DOLLAR-X, we use 1) EWMA-CROSSOVER at 32 and 128 days and 2) Breakout at lookback=10 days
-eurd_vol = eurd.daily_returns_volatility()
-eurd_raw_forecast_ewma_32_128 = ewmac(eurd.data["PRICE"], Lfast=32, Lslow=128, vol=eurd_vol)
-eurd_raw_forecast_ewma_32_128 = replace_all_zeros_with_nan(eurd_raw_forecast_ewma_32_128)
-eurd_raw_forecast_breakout = breakout(eurd.data["PRICE"], lookback=10)
-eurd_raw_forecast_breakout = replace_all_zeros_with_nan(eurd_raw_forecast_breakout)
-
-# for META, we use 1) EWMA-CROSSOVER at 16 and 64 days
-meta_vol = meta.daily_returns_volatility()
-meta_raw_forecast_ewma_16_64 = ewmac(meta.data["PRICE"], Lfast=16, Lslow=64, vol=meta_vol)
-meta_raw_forecast_ewma_16_64 = replace_all_zeros_with_nan(meta_raw_forecast_ewma_16_64)
-
-# for US30, we use 1) EWMA-CROSSOVER at 64 and 256 days and 2) Breakout at lookback=20 days
-us30_vol = us30.daily_returns_volatility()
-us30_raw_forecast_ewma_64_256 = ewmac(us30.data["PRICE"], Lfast=64, Lslow=256, vol=us30_vol)
-us30_raw_forecast_ewma_64_256 = replace_all_zeros_with_nan(us30_raw_forecast_ewma_64_256)
-us30_raw_forecast_breakout = breakout(us30.data["PRICE"], lookback=20)
-us30_raw_forecast_breakout = replace_all_zeros_with_nan(us30_raw_forecast_breakout)
-
-# step 3: apply scaling and capping to each trading rule
-# let's start with ewma_32_128
-# ideally we should perform ewma_32_128 to all instruments, let's do that for ewma_32_128 but not for the rest (too much work!!)
-# to get accurate scaling, data needs to be at least 20 years, else we can use forecast scalar from textbook
-forecasts_ewma_64_256 = []
-forecasts_ewma_32_128 = []
-forecasts_ewma_16_64 = []
-forecasts_breakout_20 = []
-forecasts_breakout_10 = []
-
-for instr in [aapl, meta, ba, us30, eurd, sp500]:
-    vol = instr.daily_returns_volatility()
-    ewma_64_256 = ewmac(instr.data["PRICE"], Lfast=64, Lslow=256, vol=vol)
-    ewma_32_128 = ewmac(instr.data["PRICE"], Lfast=32, Lslow=128, vol=vol)
-    ewma_16_64 = ewmac(instr.data["PRICE"], Lfast=16, Lslow=64, vol=vol)
-    breakout_20 = breakout(instr.data["PRICE"], lookback=20)
-    breakout_10 = breakout(instr.data["PRICE"], lookback=10)
-    forecasts_ewma_64_256.append(ewma_64_256)
-    forecasts_ewma_32_128.append(ewma_32_128)
-    forecasts_ewma_16_64.append(ewma_16_64)
-    forecasts_breakout_20.append(breakout_20)
-    forecasts_breakout_10.append(breakout_10)
-
-cs_forecasts_ewma_64_256 = group_forecasts(forecasts_ewma_64_256)    
-cs_forecasts_ewma_32_128 = group_forecasts(forecasts_ewma_32_128)
-cs_forecasts_ewma_16_64 = group_forecasts(forecasts_ewma_16_64)
-cs_forecasts_breakout_20 = group_forecasts(forecasts_breakout_20)
-cs_forecasts_breakout_10 = group_forecasts(forecasts_breakout_10)
-
-scalar_ewma_64_256 = forecast_scalar(cs_forecasts_ewma_64_256)
-scalar_ewma_32_128 = forecast_scalar(cs_forecasts_ewma_32_128)
-scalar_ewma_16_64 = forecast_scalar(cs_forecasts_ewma_16_64)
-scalar_breakout_20 = forecast_scalar(cs_forecasts_breakout_20)
-scalar_breakout_10 = forecast_scalar(cs_forecasts_breakout_10)
-
-# now less apply scalar to each forecast
-eurd_scaled_forecast_ewma_32_128 = eurd_raw_forecast_ewma_32_128 * scalar_ewma_32_128
-eurd_scaled_forecast_breakout = eurd_raw_forecast_breakout * scalar_breakout_10
-
-meta_scaled_forecast_ewma_16_64 = meta_raw_forecast_ewma_16_64 * scalar_ewma_16_64
-
-us30_scaled_forecast_ewma_64_256 = us30_raw_forecast_ewma_64_256 * scalar_ewma_64_256
-us30_scaled_forecast_breakout = us30_raw_forecast_breakout * scalar_breakout_20
-
-# apply capped forecast to each forecast
-eurd_capped_scaled_forecast_ewma_32_128 = get_capped_forecast(eurd_scaled_forecast_ewma_32_128)
-eurd_capped_scaled_forecast_breakout = get_capped_forecast(eurd_scaled_forecast_breakout)
-meta_capped_scaled_forecast_ewma_16_64 = get_capped_forecast(meta_scaled_forecast_ewma_16_64)
-us30_capped_scaled_forecast_ewma_64_256 = get_capped_forecast(us30_scaled_forecast_ewma_64_256)
-us30_capped_scaled_forecast_breakout = get_capped_forecast(us30_scaled_forecast_breakout)
-
-# step 4: combine forecasts
-#we do simple weighted average for now
-
-eurd_forecasts2 = eurd_capped_scaled_forecast_ewma_32_128 * 0.5 + eurd_capped_scaled_forecast_breakout * 0.5
-# meta_forecasts = meta_capped_scaled_forecast_ewma_16_64
-# us30_forecasts = us30_capped_scaled_forecast_ewma_64_256 * 0.5 + us30_capped_scaled_forecast_breakout * 0.5
+a = weights_0.dot(h)
+b = a.dot(weights_0.transpose())
+mult = 1 / np.sqrt(b)
 
 
+
+### now let's combine forecasts
+### first we multiply weights to its forecast
+# first we need to re-index weights to match forecast
+weights_reindex = weights.reindex(forecasts.index, method="ffill")
+# then we multiply
+weighted_forecasts = forecasts * weights_reindex
+# then we combine
+combined_forecast = weighted_forecasts.sum(axis=1)
+# and multiply by diversification multiplier
+combined_forecast_scaled = combined_forecast * mult
+# don't forget to capped to +/- 20
+combined_forecast_scaled[combined_forecast_scaled > 20] = 20
+combined_forecast_scaled[combined_forecast_scaled < -20] = -20
+
+## now let's try to calculate p&l for combined forecast
+combined_pos = get_position_from_forecast(forecast=combined_forecast_scaled, price=aapl_price, daily_returns_volatility=aapl_vol, capital=1e3)
+combined_pandl = pandl_calculation(instrument_price=aapl_price, positions=combined_pos, capital=1e3, SR_cost=SR_cost, frequency=Frequency.BDay)
+combined_account = AccountCurve(combined_pandl, frequency=Frequency.BDay)
+combined_account.curve().plot()
+plt.show()
+'''
+'''
+
+
+
+
+
+
+aapl_account_ewma16_64 = pandl_for_instrument_forecast(forecast=aapl_forecast_ewma16_64, price=aapl_price, daily_returns_volatility=aapl_vol, capital=1e3, SR_cost=SR_cost)
+aapl_account_ewma8_32 = pandl_for_instrument_forecast(forecast=aapl_forecast_ewma8_32, price=aapl_price, daily_returns_volatility=aapl_vol, capital=1e3, SR_cost=SR_cost)
+aapl_account_breakout20 = pandl_for_instrument_forecast(forecast=aapl_forecast_breakout20, price=aapl_price, daily_returns_volatility=aapl_vol, capital=1e3, SR_cost=SR_cost)
+
+aapl_account = pd.concat([aapl_account_ewma64_256, aapl_account_ewma16_64, aapl_account_ewma8_32, aapl_account_breakout20], axis=1)
+aapl_curve = pd.concat([aapl_account_ewma64_256.curve(), aapl_account_ewma16_64.curve(), aapl_account_ewma8_32.curve(), aapl_account_breakout20.curve()], axis=1)
+
+aapl_account.columns = ["ewma64_256", "ewma16_64", "ewma8_32", "breakout20"]
+aapl_curve.columns = ["ewma64_256", "ewma16_64", "ewma8_32", "breakout20"]
+# output = markosolver(aapl_account)
+
+
+
+
+#equalisevols
+default_vol=0.2
+returns = aapl_account
+factors = (default_vol/16.0)/returns.std(axis=0)
+index=returns.index
+dullvalue=np.array([factors]*len(index))
+dullname = returns.columns
+# facmat=pd.DataFrame(dullvalue, index, columns=["A"])
+facmat = pd.DataFrame(dullvalue, index, columns=dullname)
+norm_returns=returns*facmat.values
+norm_returns.columns=returns.columns
+use_returns = norm_returns
+sigma=use_returns.cov().values
+mus=np.array([use_returns[asset_name].mean() for asset_name in use_returns.columns], ndmin=2).transpose()
+## Starting weights
+number_assets=use_returns.shape[1]
+start_weights=[1.0/number_assets]*number_assets
+bounds=[(0.0,1.0)]*number_assets
+def addem(weights):
+    ## Used for constraints
+    return 1.0 - sum(weights)
+cdict=[{'type':'eq', 'fun':addem}]
+
+def variance(weights, sigma):
+    ## returns the variance (NOT standard deviation) given weights and sigma
+    return (np.matrix(weights)*sigma*np.matrix(weights).transpose())[0,0]
+
+def neg_SR(weights, sigma, mus):
+    ## Returns minus the Sharpe Ratio (as we're minimising)
+
+    """    
+    estreturn=250.0*((np.matrix(x)*mus)[0,0])
+    variance=(variance(x,sigma)**.5)*16.0
+    """
+    estreturn=(np.matrix(weights)*mus)[0,0]
+    std_dev=(variance(weights,sigma)**.5)
+
+    
+    return -estreturn/std_dev
+
+ans=minimize(neg_SR, start_weights, (sigma, mus), method='SLSQP', bounds=bounds, constraints=cdict, tol=0.00001)
+print(ans['x'])
+# aapl_account_ewma64_256.curve().plot()
+# aapl_account_ewma16_64.curve().plot()
+# aapl_account_ewma8_32.curve().plot()
+# aapl_account_breakout20.curve().plot()
+# plt.show()
+
+### optimization
+
+
+'''

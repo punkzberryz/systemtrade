@@ -13,8 +13,8 @@ class TradingRule():
         self.name = name
         self.rule_func = rule_func
         self.rule_arg = rule_arg # rule arg is just for reference
-        self.raw_forecast_results = {}
-        self.scaled_capped_forecast_results = {}
+        self.raw_forecast_results:dict[str,pd.Series] = {}
+        self.scaled_capped_forecast_results: dict[str,pd.Series] = {}
     
     def call_forecast(self, instrument_list: List[Instrument], **kwargs):
         ### loop each instrument to create raw forecast

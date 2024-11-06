@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from lib.service.frequency import resample_to_business_day
+from lib.util.frequency import resample_to_business_day
 
 def robust_daily_vol_given_price(price:pd.Series) -> pd.Series:
     price = resample_to_business_day(price)
