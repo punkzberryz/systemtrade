@@ -43,6 +43,6 @@ def _fetch_yf_data(ticker: str,
     raw = yf.download(ticker, start=start_date, end=end_date)
     data = raw[["Close"]].rename(columns={"Close":"PRICE"})
     data.index.rename("Date", inplace=True)
-    data["returns"] = np.log(data["PRICE"]/data["PRICE"].shift(1))
+    data["returns"] = np.log(data["PRICE"]/data["PRICE"].shift(1))    
 
     return data

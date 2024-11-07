@@ -2,6 +2,11 @@ import pandas as pd
 from lib.service.optimization.optimization import generate_fitting_dates
 from typing import List
 from datetime import datetime
+from dataclasses import dataclass
+from lib.util.constants import arg_not_supplied
+import numpy as np
+from lib.repository.repository import Repository
+
 '''
 We want to find the correlation between the different assets in the portfolio.
 We will find correlation of one big window, however, the window must not
