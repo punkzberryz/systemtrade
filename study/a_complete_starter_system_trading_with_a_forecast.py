@@ -570,3 +570,5 @@ ax[2].set_title('Profile of Trade Returns')
 ax[2].legend(loc=2)
 plt.tight_layout()
 plt.show()
+
+sys.data[["MBO4","Carry9","MAC1","MAC2"]]
