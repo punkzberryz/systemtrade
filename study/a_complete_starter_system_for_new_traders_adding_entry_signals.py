@@ -146,7 +146,7 @@ class StarterSystem:
                 f"Length of weights must match length of signals" +
                 f"\nSignals = {self.n_sigs}" +
                 f"\nWeights = {l_weights}")
-    def _getSignal(self, signals):
+    def _getSignal(self, signals):        
         return np.dot(self.signal_weights, signals)
     
     def _calcStopPrice(self, price, std, position, signal):
@@ -177,6 +177,7 @@ class StarterSystem:
         stops = position.copy()
         stops[:] = np.nan
         stop_triggered = stops.copy()
+        signals = np.zeros(self.data.shape[0])
         for i, (ts, row) in enumerate(self.data.iterrows()):
             if any(np.isnan(row.values)):
                 cash[i] += self._calcCash(cash[i-1], position[i], 
@@ -188,9 +189,10 @@ class StarterSystem:
             cash[i] += self._calcCash(cash[i-1], position[i], 
                                         row['Close'], row['Dividends'])
             stops[i] = stops[i-1]
-            signal = self._getSignal(row[self.signal_names].values)
+            signal = self._getSignal(row[self.signal_names].values)            
             new_stop = self._calcStopPrice(row['Close'], row['STD'],
                                             position[i], signal)
+            signals[i] = signal
             if position[i] > 0:
                 # Check for exit on stop
                 if row['Close'] < stops[i]:
@@ -228,13 +230,14 @@ class StarterSystem:
                     cash[i] -= position[i] * row['Close']
                 else:
                     continue
-            
-            self.data['position'] = position
-            self.data['cash'] = cash
-            self.data['stops'] = stops
-            self.data['stop_triggered'] = stop_triggered
-            self.data['portfolio'] = self.data['position'] * self.data['Close'] + self.data['cash']
-            self.data = calcReturns(self.data)
+        
+        self.data["signals"] = signals
+        self.data['position'] = position
+        self.data['cash'] = cash
+        self.data['stops'] = stops
+        self.data['stop_triggered'] = stop_triggered
+        self.data['portfolio'] = self.data['position'] * self.data['Close'] + self.data['cash']
+        self.data = calcReturns(self.data)
 
 # Helper functions to calculate stats
 def calcReturns(df):

@@ -15,7 +15,7 @@ def plot_returns(df: pd.DataFrame, df_spy: pd.DataFrame, ticker: str):
     ax[1].plot(df['curve'] * 100, label='Strategy')
     ax[1].plot(df['buy_and_hold_curve'] * 100, label='Buy and Hold')
     ax[1].plot(df_spy['curve'] * 100, label='SPY')
-    ax[1].set_ylabel('Returns (%)')
+    ax[1].set_ylabel('Returns Curve ($)')
     ax[1].set_xlabel('Date')
     ax[1].set_title(f'Cumulative Returns for Simple Strategy and Buy and Hold')
     ax[1].legend(loc=2)
