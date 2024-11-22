@@ -62,17 +62,19 @@ def calculate_daily_cash(cash_balance:float,
                           daily_iob:float = 1.0,
                           ):
     '''
-        Calculate daily cash balance
-        if position is long, we get dividend
-        if position is short, we pay dividend and short cost
+        We want to calculate cash we have at the moment, so that we can decide
+        how much position we can trade
     '''
+    # if cash is negative, it means we are leveraging
     cash = cash_balance * daily_iob if cash_balance > 0 else \
         cash_balance * daily_margin_cost
+    
     if position > 0:
         return cash + position * dividend
     if position < 0:
-        # note that position x price is negative, and we add cost by +cost, so we are actually subtracting the cost
-        return cash + position * dividend + position * price * daily_short_cost
+        # (position * price * daily_short_cost) is just the cost of shorting
+        # note that because position is negative, we are actually subtracting the cash by cost and dividend
+        return cash + position * dividend + (position * price * daily_short_cost)
     return cash
 
 def benchmark_data(ticker: str = "SPY",

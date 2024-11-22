@@ -34,12 +34,12 @@ rule_dict_no_carry = {
 }
 rule_dict_no_carry["CAR"] = {0 : True}
 
-# start_date = "2000-01-03"
+start_date = "2000-01-03"
 # start_date = "2010-01-03"
-start_date = "2019-01-03"
+# start_date = "2019-01-03"
 # start_date = "2024-10-10"
 end_date = None
-ticker = "AES"
+ticker = "SPY"
 capital = 1000
 
 rules = TradingRules()
@@ -48,26 +48,29 @@ aapl = TradingSystem(
                     # ticker="JASIF.BK",
                     risk_target=0.12,
                     capital=capital,
-                    cost_per_trade=1,
+                    cost_per_trade=0,
                     start_date=start_date,
                     stop_loss_fraction=0.5,
                     interest_on_balance=0,
                     margin_cost=0.07,
                     short_cost=0.02,
-                    rules = ["mac16_64", "mac32_128", "breakout20", "breakout40", "carry"],
-                    # rules = ["mac16_64", "mac32_128", "breakout20", "breakout40"],
-                    weights=[0.125, 0.125, 0.125, 0.125, 0.5],
-                    # weights=[0.25, 0.25, 0.25, 0.25],
+                    # rules = ["mac16_64", "mac32_128", "breakout20", "breakout40", "carry"],
+                    rules = ["mac8_32", "mac16_64", "mac32_128", "mac64_256", "breakout20", "breakout40", "breakout80", "breakout160", "breakout320", "carry"],
+                    weights=[0.0625, 0.0625, 0.0625, 0.0625, 0.05, 0.05, 0.05, 0.05, 0.05, 0.5],
                     trading_rules=rules
                     )
 
 
-# df = pd.concat([price, mac1, mac2, mbo1, mbo2, carr], axis=1)
-# df.columns = ["price", "mac1", "mac2", "mbo1", "mbo2", "carr"]
-# df.plot(figsize=(12, 8))
-# plt.show()
 
-# aapl.forecast_signals.plot(figsize=(12, 8))
-# plt.show()
-# aapl.combined_signal.plot(figsize=(12, 8))
-# plt.show()
+plt.show()
+aapl.portfolio.plot(figsize=(12, 8))
+aapl.price.plot(figsize=(12, 8), secondary_y=True)
+plt.show()
+
+
+aapl.combined_signal.plot(figsize=(12, 8), label="Combined Signal")
+aapl.position.plot(figsize=(12, 8), secondary_y=True, label="Position")
+#add label
+
+plt.show()
+

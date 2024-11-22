@@ -13,8 +13,8 @@ def mac_forecast(price: pd.Series,
     if Lfast >= Lslow:
         raise ValueError("Lfast should be less than Lslow")
     
-    fast = price.ewm(span=Lfast, min_periods=1).mean()
-    slow = price.ewm(span=Lslow, min_periods=1).mean()
+    fast = price.rolling(Lfast, min_periods=1).mean()
+    slow = price.rolling(Lslow, min_periods=1).mean()
     raw = fast - slow
     raw = raw.ffill().fillna(0)
     return raw / risk_in_price
