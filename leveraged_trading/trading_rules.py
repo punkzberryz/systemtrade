@@ -1,21 +1,28 @@
 import pandas as pd
+import matplotlib.pyplot as plt
 from typing import Callable, Dict, List, Any, Optional
 from leveraged_trading.rules.breakout import breakout_forecast
 # from leveraged_trading.rules.ewmac import ewmac_forecast
 from leveraged_trading.rules.mac import mac_forecast
-from leveraged_trading.rules.carry import carry_forecast
+from leveraged_trading.rules.carry import carry_forecast, carry_forecast_fx
+from leveraged_trading.optimization import optimise_over_periods
+from leveraged_trading.diversification_multiplier import get_diversification_multiplier
 
 example_rule_list = [
+    # { "name": "mac2_8", "rule_func": mac_forecast, "params": {"Lfast": 2, "Lslow": 8}},
+    # { "name": "mac4_16", "rule_func": mac_forecast, "params": {"Lfast": 4, "Lslow": 16}},
     { "name": "mac8_32", "rule_func": mac_forecast, "params": {"Lfast": 8, "Lslow": 32}},
     { "name": "mac16_64", "rule_func": mac_forecast, "params": {"Lfast": 16, "Lslow": 64}},
     { "name": "mac32_128", "rule_func": mac_forecast, "params": {"Lfast": 32, "Lslow": 128}},
     { "name": "mac64_256", "rule_func": mac_forecast, "params": {"Lfast": 64, "Lslow": 256}},
+    # { "name": "breakout10", "rule_func": breakout_forecast, "params": {"lookback": 10}},
     { "name": "breakout20", "rule_func": breakout_forecast, "params": {"lookback": 20}},
     { "name": "breakout40", "rule_func": breakout_forecast, "params": {"lookback": 40}},
     { "name": "breakout80", "rule_func": breakout_forecast, "params": {"lookback": 80}},
     { "name": "breakout160", "rule_func": breakout_forecast, "params": {"lookback": 160}},
     { "name": "breakout320", "rule_func": breakout_forecast, "params": {"lookback": 320}},
     { "name": "carry", "rule_func": carry_forecast, "params": {}},
+    { "name": "carry_fx", "rule_func": carry_forecast_fx, "params": {}},
 ]
 
 SCALE_FACTOR_LOOKUP = {
@@ -29,19 +36,21 @@ SCALE_FACTOR_LOOKUP = {
     "breakout160": 33.5,
     "breakout320": 33.5,
     "carry": 30,
+    "carry_fx": 30
 }
+
 
 class TradingRules:
     '''
         Trading rules is a class that contains all available trading rules.
         And it also provides method to generate forcast from the given price data
     '''
-    def __init__(self, rule_list = example_rule_list,):        
+    def __init__(self, rule_names:List[str] = None):        
         self._trading_rules: Dict[str, Callable] = {}
         self._rule_params: Dict[str, Dict] = {}
-        if rule_list:
-            self._rules_constructor(rule_list)            
-    
+        rule_list = _make_rule_list(rule_names)
+        self._rules_constructor(rule_list)
+            
     def _rules_constructor(self, rule_list:List[Dict[str, Any]]):
         # we create trading rules on init, and call forecast for each rule
         for rule in rule_list:            
@@ -76,7 +85,76 @@ class TradingRules:
             raise ValueError(f"Scale factor not found for rule {rule_name}")
         forecast = rule_func(price, **params) * scaled_factor
         print(f"rule_name: {rule_name}, scaled factor: {scaled_factor}")
-        return _cap_forecast(forecast, forecast_cap=20)
+        return _cap_forecast(forecast, forecast_cap=20)        
+    
+    def _get_forecast_returns(self,
+                forecast:pd.Series,
+                price:pd.Series,                
+                instrument_risk: pd.Series,                
+                target_risk: float = 0.12,
+                capital: float = 1000,
+                **kwargs)-> pd.DataFrame:
+        '''
+            backtest individual trading rule to get p&l
+        '''        
+        annual_cash_risk_target = capital * target_risk
+        average_notional_exposure = annual_cash_risk_target / instrument_risk
+        notional_exposure = (forecast / 10) * average_notional_exposure
+        notional_position = notional_exposure / price.shift(1) #position size from previous day price
+        # we are assuming that we trade at the open price, hence we use previous day price
+        
+        # let's calculate p&l
+        price_diff = price.diff() #price change
+        pandl = notional_position.shift(1) * price_diff
+        
+        return pandl
+            
+    def get_combined_forecast_signal(self,
+                                     price: pd.Series,
+                                     dividends: pd.Series,
+                                     instrument_risk: pd.Series,
+                                     target_risk: float = 0.12,
+                                     capital: float = 1000,
+                                     fit_method: str = "bootstrap", # one_period or bootstrap
+                                     **kwargs)-> tuple[pd.Series, pd.DataFrame] :
+        '''
+            Combine all forecast signals
+        '''
+        forecast_returns = pd.DataFrame()
+        forecasts = pd.DataFrame()
+        curves = pd.DataFrame()
+        for rule_name in self._trading_rules:
+            if rule_name == "carry_fx":                
+                forecast = self.get_forecast_signal(rule_name, price=price, instrument_risk=instrument_risk, **kwargs)
+            else:
+                forecast = self.get_forecast_signal(rule_name, price=price, instrument_risk=instrument_risk, dividends=dividends, **kwargs)
+            
+
+            forecast_return = self._get_forecast_returns(forecast=forecast,
+                                                            price=price,
+                                                            instrument_risk=instrument_risk,
+                                                            target_risk=target_risk,
+                                                            capital=capital,
+                                                            **kwargs)
+            
+            forecasts[rule_name] = forecast
+            forecast_returns[rule_name] = forecast_return
+            curves[rule_name] = forecast_return.cumsum().ffill()
+        
+        weights = optimise_over_periods(forecast_returns, date_method="expanding", fit_method=fit_method)        
+        weights.plot()
+        
+        dm = get_diversification_multiplier(forecasts_data=forecasts, weights=weights)
+        weights_reindex = weights.reindex(forecasts.index, method="ffill")
+        weights_reindex = weights_reindex.ewm(span=125, min_periods=20).mean() #smooth the weights
+        weighted_forecasts = forecasts * weights_reindex
+        combined_forecast = weighted_forecasts.sum(axis=1)
+        scaled_forecast = combined_forecast * dm
+        # cap the forecast at +/- 20
+        scaled_forecast[scaled_forecast > 20] = 20
+        scaled_forecast[scaled_forecast < -20] = -20
+
+        return scaled_forecast
 
 
 def _cap_forecast(forecast:pd.Series, forecast_cap:float = 20)-> pd.Series:
@@ -84,7 +162,36 @@ def _cap_forecast(forecast:pd.Series, forecast_cap:float = 20)-> pd.Series:
     capped_forecast = scaled_forecast.clip(lower=-forecast_cap, upper=forecast_cap)
     return capped_forecast
 
-
-
-# x = TradingRules()
-# x.add_rule("ewmac", ewmac_forecast, {"Lfast": 64, "Lslow": 256})
+def _make_rule_list(rule_names: List[str] = None) -> List[dict]:
+    '''
+        Make rule list from given array of rule's name
+        rule_names: List of rule names e.g. ["mac8_32", "mac16_64"]
+        output: List of rule dictionary
+        e.g. [{"name": "mac8_32", "rule_func": mac_forecast, "params": {"Lfast": 8, "Lslow": 32}}]
+    '''
+    
+    if rule_name is None:
+        #Return default if no rule name is provided
+        return example_rule_list
+        
+    # First, ensure rule_names is a list of strings
+    if isinstance(rule_names, str):
+        # If it's a string, try to evaluate it as a list
+        try:
+            import ast
+            rule_names = ast.literal_eval(rule_names)
+        except:
+            # If that fails, treat it as a single rule name
+            rule_names = [rule_names]
+    
+    rule_list = []
+    for rule_name in rule_names:
+        matching_rule = next(
+            (rule for rule in example_rule_list if rule["name"] == rule_name),
+            None
+        )
+        if matching_rule:
+            rule_list.append(matching_rule)
+        else:
+            raise ValueError(f"Rule '{rule_name}' not found in example_rule_list")
+    return rule_list

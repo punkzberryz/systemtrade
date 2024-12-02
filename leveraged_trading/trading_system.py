@@ -1,11 +1,10 @@
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
 import lib.repository.repository as repo
 from datetime import timedelta
-from leveraged_trading.calculator import (calculate_daily_cash,
-                                          calculate_position_size,
-                                        #   calculate_position_size_from_forecast,
-                                          calculate_stop_loss,
+from leveraged_trading.calculator import (getStats,
+                                          benchmark_data,
                                           calculate_instrument_risk,)
 from leveraged_trading.util import find_nearest_trading_date
 from leveraged_trading.trading_rules import TradingRules
@@ -28,9 +27,11 @@ class TradingSystem:
                  short_cost: float = 0.001, #in percentage
                  stop_loss_fraction: float = 0.5, # 50% of ATR
                  start_date: str = "2012-01-03",
-                 rules: list[str] = None,
-                 weights: list[float] = None,
-                 trading_rules: TradingRules = None
+                 rules: list[str] = None,                 
+                 trading_rules: TradingRules = None,
+                 optimization_method: str = "one_period", #one_period or bootstrap
+                 deviation_in_exposure_to_trade: float = 0.1, #trade when deviation is more than 30%
+                 print_trade: bool = False,
                  ):
         self.ticker = ticker
         self.risk_target = risk_target
@@ -44,6 +45,8 @@ class TradingSystem:
         self.daily_short_cost = self.short_cost / 360
         self.stop_loss_fraction = stop_loss_fraction
         self.start_date = start_date
+        self.deviation_in_exposure_to_trade = deviation_in_exposure_to_trade
+        self.print_trade = print_trade
 
         #get instrument data
         end_date = "2001-10-01"
@@ -51,235 +54,416 @@ class TradingSystem:
         instru = repo.Instrument(ticker)
         instru.try_import_data(start_date="2000-01-01", filename="data/"+ticker+".csv")
         # self.price = instru.data["PRICE"][start_date:end_date]
-        self.price = instru.data["PRICE"]
-        # self.dividends = instru.data["DIVIDENDS"][start_date:end_date]
-        self.dividends = instru.data["DIVIDENDS"]
-        self.instrument_risk = calculate_instrument_risk(self.price, window=25)
-        self.rules = []
+        self.data = pd.DataFrame()
+        self.data["PRICE"] = instru.data["PRICE"]
+        self.data["DIVIDENDS"] = instru.data["DIVIDENDS"]
+        self.data["instrument_risk"] = calculate_instrument_risk(self.data["PRICE"], window=25)                
+        self.rules = rules
         
-        if any([rules, weights, trading_rules]):
-            self.add_rules(rules)
-            self.calc_forecast_signals(trading_rules)
-            self.add_weights(weights)
-            self.calc_combined_signal()
-            print(f"Calculated combined signal of {self.ticker} completed...")
-            cash, position, num_trades, notionl_exposure =  trade2(self.price,
-                  instrument_risk=self.instrument_risk,
-                  dividends=self.dividends,
-                  forecast=self.combined_signal,
-                  initial_capital=self.capital,
-                  risk_target=self.risk_target,
-                  start_date=self.start_date,
-                  daily_iob=self.daily_iob,
-                  daily_margin_cost=self.daily_margin_cost,
-                  daily_short_cost=self.daily_short_cost,
-                  cost_per_trade=self.cost_per_trade,
-                  )
-            self.cash = cash
-            self.position = position
-            self.num_trades = num_trades
-            self.notional_exposure = notionl_exposure
-            price_change = self.price.diff()
-            self.daily_pnl = self.position.shift(1) * price_change
-            self.curve = self.daily_pnl.cumsum().ffill()
-            self.portfolio = self.cash + self.position * self.price
-            #let's plot the result
-            self.curve.plot(figsize=(12, 8))
-            # self.portfolio.plot(figsize=(12, 8))
-            #plot position
-            self.position.plot(figsize=(12, 8), secondary_y=True)
-            print(f"Trading system for {self.ticker} completed...")
-            
-            
+        self.data["signal"] = trading_rules.get_combined_forecast_signal(price=self.data["PRICE"],
+                                                   dividends=self.data["DIVIDENDS"],
+                                                   instrument_risk=self.data["instrument_risk"],
+                                                   target_risk=self.risk_target,
+                                                   capital=self.capital,                                                
+                                                   fit_method=optimization_method,
+                                                   )
+        self.trade()
+        self._calcBenchmark(ticker="SPY")
+        self.get_stats()
+        self.plot()
 
-            
-    def add_rules(self, rule_names:list[str]):
-        '''
-            add trading rule to the system
-        '''
-        for rule_name in rule_names:            
-            self.rules.append(rule_name)
-        
-    def calc_forecast_signals(self, trading_rules:TradingRules):
-        '''
-            create pd.DataFrame of forecast signals
-        '''
-        forecast_signals = pd.DataFrame()
-        for rule_name in self.rules:
-            forecast = trading_rules.get_forecast_signal(rule_name,
-                                                         price=self.price,
-                                                         instrument_risk = self.instrument_risk,
-                                                         dividends = self.dividends)
-            forecast_signals[rule_name] = forecast
-        self.forecast_signals = forecast_signals
+    def re_trade(self, trading_rules: TradingRules, optimization_method: str = "bootstrap"):
+        self.data["signal"] = trading_rules.get_combined_forecast_signal(price=self.data["PRICE"],
+                                                   dividends=self.data["DIVIDENDS"],
+                                                   instrument_risk=self.data["instrument_risk"],
+                                                   target_risk=self.risk_target,
+                                                   capital=self.capital,        
+                                                   fit_method=optimization_method,
+                                                   )
+        self.trade()
+        self._calcBenchmark(ticker="SPY")
+        self.get_stats()
+        self.plot()
     
-    def add_weights(self, weights:list[float]):
+    def trade(self) -> None:
         '''
-            add weights to the trading system,
-            weights must be in the same order as the rules
-            
-            we choose to do it in a simple way, but user must add weights in the correct order
+            Make a trade based on the trading system
         '''
-        self.weights = weights
-        #verify that sum of weights is 1
-        if sum(weights) != 1:
-            raise ValueError("Sum of weights must be 1")
-    
-    def calc_combined_signal(self):
-        '''
-            calculate the combined signal from the forecast signals
-        '''
-        self.combined_signal = self.forecast_signals.dot(self.weights)
-
-
-def trade(price: pd.Series,
-          forecast: pd.Series,
-          instrument_risk: pd.Series,
-          dividends: pd.Series,
-          initial_capital: float,
-          risk_target: float,
-          start_date: str = "2010-01-03",
-          daily_iob: float = 1,
-          daily_margin_cost: float = 1,
-          daily_short_cost: float = 1,
-          cost_per_trade:float = 1
-          ):
-    '''
-        Make a trade based on the trading system
-    '''
-    # create pd.Series of position starting with 0
-    position = pd.Series(index=price.index, data=0)
-    cash = position.copy()
-    num_of_trades = position.copy()
-    start_date = find_nearest_trading_date(price.index, start_date)
-    start_index = price.index.get_loc(start_date)
-    cash.iloc[start_index-1] = initial_capital
-    notional_exposure = position.copy()    
-    for i in range(start_index, len(price)):        
-        #Propogate values forward
-        cash.iloc[i] = cash.iloc[i-1]
-        # cash.iloc[i] = calculate_daily_cash(
-        #     cash_balance=cash.iloc[i-1],
-        #     position=position.iloc[i-1],
-        #     price=price.iloc[i],
-        #     dividend=dividends.iloc[i],
-        #     daily_iob=daily_iob,
-        #     daily_margin_cost=daily_margin_cost,
-        #     daily_short_cost=daily_short_cost,                               
-        # )
-        position.iloc[i] = position.iloc[i-1]
-        num_of_trades.iloc[i] = num_of_trades.iloc[i-1]
-        
-        # capital_at_risk = initial_capital #capital at risk of falling or rising        
-        capital_at_risk = cash.iloc[i] + position.iloc[i] * price.iloc[i] #capital at risk of falling or rising        
-        ### ideal notional exposure
-        ideal_notional_exposure = forecast.iloc[i] / 10 * risk_target * capital_at_risk  / instrument_risk.iloc[i]
-        notional_exposure.iloc[i] = ideal_notional_exposure
-        ### average exposure
-        average_exposure = risk_target * cash.iloc[i] / instrument_risk.iloc[i]
-        ### current notional exposure
-        current_notional_exposure = position.iloc[i] * price.iloc[i]
-        
-        deviation_in_exposure = (ideal_notional_exposure - current_notional_exposure) / average_exposure
-        
-        
-        if abs(deviation_in_exposure) < 0.1:
-            continue
-        
-        ### if deviation is more than 10%, we trade / adjust position        
-        if forecast.iloc[i] > 0:
-            # signal tell us to buy
-            if position.iloc[i] <= 0:
-                # we are currently short or no position, let's firstly close the position
-                cash.iloc[i] += position.iloc[i] * price.iloc[i] - \
-                    cost_per_trade * (1 if position.iloc[i] < 0 else 0) #if position = 0, no trade, no cost
-                print("=====================================")
-                print(f"Close short position previously at {position.iloc[i]} at price {price.iloc[i]}, with previous cash balance {cash.iloc[i-1]}")
-                print(f"New cash balance: {cash.iloc[i]}")
-                #new position
-                position.iloc[i] = calculate_number_of_shares(price.iloc[i],
-                                                              capital=cash.iloc[i], # new cash at hand
-                                                              risk_target=risk_target,
-                                                              instrument_risk=instrument_risk.iloc[i],
-                                                              forecast=forecast.iloc[i])
-                cash.iloc[i] -= position.iloc[i] * price.iloc[i] + cost_per_trade
-                num_of_trades.iloc[i] += 1 + (1 if position.iloc[i] < 0 else 0)
-                print(f"Open new long position with number of shares: {position.iloc[i]}")
-                print(f"New cash balance: {cash.iloc[i]}")
-                print("=====================================")
-            else:
-                # we are currently long, but we want to adjust position
-                target_shares = round(ideal_notional_exposure / price.iloc[i],0)
-                shares_to_trade = target_shares - position.iloc[i]
-                # update cash
-                # note that if we want to buy more, shares_to_trade will be positive, hence cash is deducted
-                # and if we want to reduce position (sell), shares_to_trade will be negative, 
-                # hence cash is added
-                cash.iloc[i] = cash.iloc[i] - shares_to_trade * price.iloc[i] - cost_per_trade
-                position.iloc[i] = target_shares
-                num_of_trades.iloc[i] += 1
-                print("=====================================")
-                print(f"Adjust position at price {price.iloc[i]} with previous cash balance {cash.iloc[i-1]}")
-                print(f"New cash balance: {cash.iloc[i]}")
-                print(f"Previous position: {position.iloc[i-1]}")
-                print(f"New position: {position.iloc[i]}")
-                # print(f"leverage factor: {notional_exposure.iloc[i] / cash.iloc[i-1]}")
-                print("=====================================")
-            print(f"Signal: {forecast.iloc[i]}, Position: {position.iloc[i]}, Previous Position: {position.iloc[i-1]}")
-        elif forecast.iloc[i] < 0:
-            #signal to short
-            if position.iloc[i] >= 0:
-                # we are currently long or no position, let's firstly close the position
-                cash.iloc[i] += position.iloc[i] * price.iloc[i] - \
-                    cost_per_trade * (1 if position.iloc[i] > 0 else 0) #if position = 0, no trade, no cost
-                print("=====================================")
-                print(f"Close long position previously at {position.iloc[i]} at price {price.iloc[i]}, with previous cash balance {cash.iloc[i-1]}")
-                print(f"New cash balance: {cash.iloc[i]}")
-                #new position
-                position.iloc[i] = calculate_number_of_shares(price.iloc[i],
-                                                              capital=cash.iloc[i], # new cash at hand
-                                                              risk_target=risk_target,
-                                                              instrument_risk=instrument_risk.iloc[i],
-                                                              forecast=forecast.iloc[i])
-                cash.iloc[i] -= position.iloc[i] * price.iloc[i] + cost_per_trade
-                num_of_trades.iloc[i] += 1 + (1 if position.iloc[i] > 0 else 0)
-                print(f"Open new short position with number of shares: {position.iloc[i]}")
-                print(f"New cash balance: {cash.iloc[i]}")
-                print("=====================================")
-            else:
-                # we are currently short, but we want to adjust position
-                target_shares = round(ideal_notional_exposure / price.iloc[i],0)
-                shares_to_trade = target_shares - position.iloc[i]
-                # update cash
-                # e.g., position=-10, target share= -5, we want to buy back 5 shares
-                # cash = cash - (-5 - (-10)) * price = cash - 5 * price
-                # cash is reduce by 5 * price, and short position is reduce by 5
-                
-                # next if position = -10, target share = -15, we want to sell 5 shares
-                # cash = cash - (-15 - (-10)) * price = cash + 5 * price
-                # cash is added by 5 * price, and short position is added by 5
-                cash.iloc[i] = cash.iloc[i] - shares_to_trade * price.iloc[i] - cost_per_trade
-                position.iloc[i] = target_shares
-                num_of_trades.iloc[i] += 1
-                print("=====================================")
-                print(f"Adjust position at price {price.iloc[i]} with previous cash balance {cash.iloc[i-1]}")
-                print(f"New cash balance: {cash.iloc[i]}")
-                print(f"Previous position: {position.iloc[i-1]}")
-                print(f"New position: {position.iloc[i]}")
-            print(f"Signal: {forecast.iloc[i]}, Position: {position.iloc[i]}, Previous Position: {position.iloc[i-1]}")
-        else:
-            if position.iloc[i] == 0:
+        position = pd.Series(index=self.data.index, data=0)
+        cash = position.copy()
+        num_of_trades = position.copy()
+        start_date = find_nearest_trading_date(self.data["PRICE"].index, self.start_date)
+        start_index = self.data["PRICE"].index.get_loc(start_date)
+        cash.iloc[start_index-1] = self.capital #starting capital from previous day
+        notional_exposure = position.copy()       
+        current_exposure = position.copy()
+        transaction_cost = position.copy()
+        holding_cost = position.copy()
+        # for i in range(start_index, start_index+800):
+        # for i in range(start_index, start_index+750):
+        for i in range(start_index, len(self.data["PRICE"])):
+            #Propogate values forward            
+            # cash.iloc[i] = cash.iloc[i-1]
+            daily_cash, daily_holding_cost = _calculate_daily_cash(cash_balance=cash.iloc[i-1],
+                                                 position=position.iloc[i-1],
+                                                 price=self.data["PRICE"].iloc[i],
+                                                 dividend=self.data["DIVIDENDS"].iloc[i],
+                                                 daily_margin_cost=self.daily_margin_cost,
+                                                 daily_short_cost=self.daily_short_cost,
+                                                 daily_iob=self.daily_iob,)
+            cash.iloc[i] = daily_cash
+            position.iloc[i] = position.iloc[i-1]
+            num_of_trades.iloc[i] = num_of_trades.iloc[i-1]
+            transaction_cost.iloc[i] = transaction_cost.iloc[i-1]
+            holding_cost.iloc[i] = holding_cost.iloc[i-1] + daily_holding_cost
+            # skip if signal is nan
+            if np.isnan(self.data["signal"].iloc[i]):
                 continue
-            # signal = 0, close all position
-            cash.iloc[i] += position.iloc[i] * price.iloc[i] - cost_per_trade                    
-            position.iloc[i] = 0
-            num_of_trades.iloc[i] += 1
-            print("=====================================")
-            print(f"Close all position at price {price.iloc[i]} with previous cash balance {cash.iloc[i-1]}")
-            print(f"New cash balance: {cash.iloc[i]}")
-            print("=====================================")
-    ### end of loop
-    return cash, position, num_of_trades, notional_exposure
+            row = self.data.iloc[i]
+            capital = cash.iloc[i] + position.iloc[i] * row["PRICE"]            
+            ideal_exposure, deviation_in_exposure = calculate_position_size_from_forecast(forecast=row["signal"],
+                                                                                            capital=capital,
+                                                                                            risk_target=self.risk_target,
+                                                                                            instrument_risk=row["instrument_risk"],
+                                                                                            position=position.iloc[i],
+                                                                                            price=row["PRICE"],
+                                                                                            )
+            notional_exposure.iloc[i] = ideal_exposure
+            current_exposure.iloc[i] = position.iloc[i] * row["PRICE"]
+            
+            if abs(deviation_in_exposure) > self.deviation_in_exposure_to_trade:
+                # deviation is more than 10%, we trade / adjust position
+                if row["signal"] > 0: #signal to long
+                    if position.iloc[i] > 0: #already long, just need to adjust posistion                                                
+                        target_share, new_cash, traded_cost, traded_num = _adjust_position(price=row["PRICE"],
+                                                                        notional_exposure=ideal_exposure,
+                                                                        current_position=position.iloc[i],
+                                                                        current_cash=cash.iloc[i],
+                                                                        cost_per_trade=self.cost_per_trade)
+                        position.iloc[i] = target_share
+                        cash.iloc[i] = new_cash
+                        transaction_cost.iloc[i] += traded_cost
+                        num_of_trades.iloc[i] += traded_num
+                        if self.print_trade:
+                            print("=====================================")
+                            print("Adjusting long position")
+                            print(f"Previous position: {position.iloc[i-1]}")
+                            print(f"New position: {position.iloc[i]}")
+                            print(f"Previous cash balance: {cash.iloc[i-1]}")
+                            print(f"New cash balance: {cash.iloc[i]}")
+                            print(f"Price: {row['PRICE']}")
+                            print(f"Ideal exposure: {ideal_exposure}")
+                            print(f"New exposure: {position.iloc[i] * row["PRICE"]}")
+                            print("=====================================")                        
+                    else: #we are short or no position, let's buy
+                        #firstly, we close the short position
+                        target_share, new_cash, traded_cost, traded_num = _close_position(price=row["PRICE"],
+                                                                              current_position=position.iloc[i],
+                                                                              current_cash=cash.iloc[i],
+                                                                              cost_per_trade=self.cost_per_trade)
+                        position.iloc[i] = target_share
+                        cash.iloc[i] = new_cash
+                        transaction_cost.iloc[i] += traded_cost
+                        num_of_trades.iloc[i] += traded_num
+                        if self.print_trade:
+                            print("=====================================")
+                            print("Closing short position Before opening long position")
+                            print(f"Previous position: {position.iloc[i-1]}")
+                            print(f"New position: {position.iloc[i]}")
+                            print(f"Previous cash balance: {cash.iloc[i-1]}")
+                            print(f"New cash balance: {cash.iloc[i]}")
+                            print(f"Price: {row['PRICE']}")
+                            print("=====================================")
+                        
+                        ### now we open long position
+                        target_share, new_cash, traded_cost, traded_num = _adjust_position(price=row["PRICE"],
+                                                                                            notional_exposure=ideal_exposure,
+                                                                                            current_position=position.iloc[i],
+                                                                                            current_cash=cash.iloc[i],
+                                                                                            cost_per_trade=self.cost_per_trade)
+                        position.iloc[i] = target_share
+                        cash.iloc[i] = new_cash
+                        transaction_cost.iloc[i] += traded_cost
+                        num_of_trades.iloc[i] += traded_num
+                        if self.print_trade:
+                            print("=====================================")
+                            print("Opening long position after closing short position")
+                            print(f"Previous position: {position.iloc[i-1]}")
+                            print(f"New position: {position.iloc[i]}")
+                            print(f"Previous cash balance: {cash.iloc[i-1]}")
+                            print(f"New cash balance: {cash.iloc[i]}")
+                            print(f"Price: {row['PRICE']}")
+                            print(f"Ideal exposure: {ideal_exposure}")
+                            print(f"New exposure: {position.iloc[i] * row["PRICE"]}")
+                            print("=====================================")
+                elif row["signal"] < 0: #signal to short
+                    if position.iloc[i] < 0: #already short, just need to adjust posistion
+                        target_share, new_cash, traded_cost, traded_num = _adjust_position(price=row["PRICE"],
+                                                                                        notional_exposure=ideal_exposure,
+                                                                                        current_position=position.iloc[i],
+                                                                                        current_cash=cash.iloc[i],
+                                                                                        cost_per_trade=self.cost_per_trade)
+                        position.iloc[i] = target_share
+                        cash.iloc[i] = new_cash
+                        transaction_cost.iloc[i] += traded_cost
+                        num_of_trades.iloc[i] += traded_num
+                        if self.print_trade:
+                            print("=====================================")
+                            print("Adjusting short position")
+                            print(f"Previous position: {position.iloc[i-1]}")
+                            print(f"New position: {position.iloc[i]}")
+                            print(f"Previous cash balance: {cash.iloc[i-1]}")
+                            print(f"New cash balance: {cash.iloc[i]}")
+                            print(f"Price: {row['PRICE']}")
+                            print(f"Ideal exposure: {ideal_exposure}")
+                            print(f"New exposure: {position.iloc[i] * row["PRICE"]}")
+                            print("=====================================")
+                    else: #we are long or no position, let's short
+                        #firstly, we close the long position
+                        target_share, new_cash, traded_cost, traded_num = _close_position(price=row["PRICE"],
+                                                                              current_position=position.iloc[i],
+                                                                              current_cash=cash.iloc[i],
+                                                                              cost_per_trade=self.cost_per_trade)
+                        position.iloc[i] = target_share
+                        cash.iloc[i] = new_cash
+                        transaction_cost.iloc[i] += traded_cost
+                        num_of_trades.iloc[i] += traded_num
+                        if self.print_trade:
+                            print("=====================================")
+                            print("Closing long position Before opening short position")
+                            print(f"Previous position: {position.iloc[i-1]}")
+                            print(f"New position: {position.iloc[i]}")
+                            print(f"Previous cash balance: {cash.iloc[i-1]}")
+                            print(f"New cash balance: {cash.iloc[i]}")
+                            print(f"Price: {row['PRICE']}")
+                            print("=====================================")
+                        ### now we open long position
+                        target_share, new_cash, traded_cost, traded_num = _adjust_position(price=row["PRICE"],
+                                                                                            notional_exposure=ideal_exposure,
+                                                                                            current_position=position.iloc[i],
+                                                                                            current_cash=cash.iloc[i],
+                                                                                            cost_per_trade=self.cost_per_trade)
+                        position.iloc[i] = target_share
+                        cash.iloc[i] = new_cash
+                        transaction_cost.iloc[i] += traded_cost
+                        num_of_trades.iloc[i] += traded_num
+                        if self.print_trade:
+                            print("=====================================")
+                            print("Opening short position after closing long position")
+                            print(f"Previous position: {position.iloc[i-1]}")
+                            print(f"New position: {position.iloc[i]}")
+                            print(f"Previous cash balance: {cash.iloc[i-1]}")
+                            print(f"New cash balance: {cash.iloc[i]}")
+                            print(f"Price: {row['PRICE']}")
+                            print("=====================================")
+                        
+                else:
+                    #signal = 0, let's just close position
+                    target_share, new_cash, traded_cost, traded_num = _close_position(price=row["PRICE"],
+                                                                                      current_position=position.iloc[i],
+                                                                                      current_cash=cash.iloc[i],
+                                                                                      cost_per_trade=self.cost_per_trade)
+                    position.iloc[i] = target_share
+                    cash.iloc[i] = new_cash
+                    transaction_cost.iloc[i] += traded_cost
+                    num_of_trades.iloc[i] += traded_num
+                    if self.print_trade:
+                        print("=====================================")
+                        print("Closing position because signal is 0")
+                        print(f"Previous position: {position.iloc[i-1]}")
+                        print(f"New position: {position.iloc[i]}")
+                        print(f"Previous cash balance: {cash.iloc[i-1]}")
+                        print(f"New cash balance: {cash.iloc[i]}")
+                        print(f"Price: {row['PRICE']}")
+                        print("=====================================")      
+                
+        ### end of loop
+        self.data["position"] = position
+        self.data["cash"] = cash
+        self.data["notional_exposure"] = notional_exposure
+        self.data["current_exposure"] = current_exposure
+        self.data["cost"] = transaction_cost + holding_cost
+        self.data["holding_cost"] = holding_cost
+        self.data["transaction_cost"] = transaction_cost
+        self.data["number_of_trades"] = num_of_trades
+        
+        self._calcReturns()
+
+    def _calcReturns(self):
+        '''
+        Calculate returns
+        '''
+        price_change = self.data["PRICE"].diff()
+        self.data["pandl"] = self.data["position"].shift(1) * price_change
+        self.data["curve_pre_cost"] = self.data["pandl"].cumsum().ffill()
+        self.data["curve"] = self.data["curve_pre_cost"] - self.data["cost"]
+        portfolio = self.data["curve"] + self.capital
+        self.data["returns"] = self.data["curve"] / self.capital
+        self.data["log_returns"] = np.log(portfolio / portfolio.shift(1))
+        #get number of trades per year
+        self.first_trade_date = self.data.index[self.data["number_of_trades"]==1][0] #get position of the date we enter the trade
+        self.end_trade_date = self.data.index[-1]
+        self.number_of_years_trade = (self.end_trade_date - self.first_trade_date).days / 365.25 #Using 365.25 to account for leap years
+        average_trades_per_year = self.data["number_of_trades"].iloc[-1] / self.number_of_years_trade
+        print(f"Average trade per year: {average_trades_per_year}")
+        #calculate buy and hold strategy
+        start_position = np.floor(self.capital / self.data["PRICE"].loc[self.first_trade_date])
+        self.data.loc[self.first_trade_date, "buy_and_hold_position"] = start_position
+        self.data["buy_and_hold_position"] = self.data["buy_and_hold_position"].ffill()
+        self.data["buy_and_hold_pandl"] = self.data["buy_and_hold_position"].shift(1) * price_change
+        self.data["buy_and_hold_curve"] = self.data["buy_and_hold_pandl"].cumsum().ffill()
+        self.data["buy_and_hold_returns"] = self.data["buy_and_hold_curve"] / self.capital    
+    
+    def _calcBenchmark(self, ticker: str = "SPY"):
+        '''
+        Calculate benchmark
+        '''
+        df = benchmark_data(ticker=ticker, start_date=self.first_trade_date, capital=self.capital)
+        self.benchmark_df = df
+        self.benchmark_ticker = ticker
+                
+    def get_stats(self):    
+        strat_stats = pd.DataFrame(getStats(self.data["curve"], capital=self.capital), index=["Strategy"])
+        strat_stats_pre_cost = pd.DataFrame(getStats(self.data["curve_pre_cost"], capital=self.capital), index=["Strategy Pre Cost"])
+        buy_and_hold_stats = pd.DataFrame(getStats(self.data["buy_and_hold_curve"], capital=self.capital), index=["Buy and Hold"])
+        benchmark_stats = pd.DataFrame(getStats(self.benchmark_df["curve"], capital=self.capital), index=[self.benchmark_ticker])
+        stats = pd.concat([strat_stats, strat_stats_pre_cost, buy_and_hold_stats, benchmark_stats])
+        self.stats = stats
+        print(stats)
+        sr_pre_cost = strat_stats_pre_cost.loc["Strategy Pre Cost", "sharpe_ratio"]
+        sr_post_cost = strat_stats.loc["Strategy", "sharpe_ratio"]
+        sr_cost = sr_pre_cost - sr_post_cost
+        print(f"SR cost by SR Pre Cost: {sr_cost / sr_pre_cost * 100:.2f}%")
+    
+    def plot(self):
+        yearly_log_returns = self.data["log_returns"].groupby(self.data["number_of_trades"]).sum() * 100
+        # yearly_log_returns = self.data["log_returns"].resample("YE").sum() * 100
+        colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+        fig, ax = plt.subplots(3, figsize=(15, 10))
+        ax[0].plot(self.data['PRICE'], label='Close')
+        ax[0].set_ylabel('Price ($)')
+        ax[0].set_xlabel('Date')
+        ax[0].set_title(f'Price for {self.ticker}')
+        ax[0].tick_params(axis='y', labelcolor='tab:blue')
+        ax[0].legend(loc=1)
+        
+        #create secondary axis (right)
+        ax2 = ax[0].twinx()
+        ax2.plot(self.data["position"], color='tab:red', label='Position')
+        ax2.set_ylabel('Position', color='tab:red')
+        ax2.tick_params(axis='y', labelcolor='tab:red')
+        
+        #Combine legends
+        lines1, labels1 = ax[0].get_legend_handles_labels()
+        lines2, labels2 = ax2.get_legend_handles_labels()
+        ax2.legend(lines1 + lines2, labels1 + labels2, loc="upper right")
+        
+        #plot for curve of each strat
+        ax[1].plot(self.data['curve'] * 100, label='Strategy of '+self.ticker)
+        ax[1].plot(self.data["curve_pre_cost"] * 100, label='Strategy Pre Cost of '+self.ticker)
+        ax[1].plot(self.data['buy_and_hold_curve'] * 100, label='Buy and Hold of '+self.ticker)
+        ax[1].plot(self.benchmark_df['curve'] * 100, label=self.benchmark_ticker)
+        ax[1].set_ylabel('Returns Curve ($)')
+        ax[1].set_xlabel('Date')
+        ax[1].set_title(f'Cumulative Returns for Simple Strategy and Buy and Hold')
+        ax[1].legend(loc=2)
+        
+        #plot for histogram of returns
+        ax[2].hist(yearly_log_returns, bins=50)
+        ax[2].axvline(yearly_log_returns.mean(), 
+                    label=f'Mean Return = {yearly_log_returns.mean():.2f}', 
+                    c=colors[1])
+        ax[2].set_ylabel('Trade Count')
+        ax[2].set_xlabel('Return (%)')
+        ax[2].set_title('Profile of Trade Returns')
+        ax[2].legend(loc=2)
+
+        plt.tight_layout()
+        plt.show()
+                
+
+def _close_position(price: float,
+                    current_position: float,
+                    current_cash: float,
+                    cost_per_trade: float = 1,):
+    '''
+        Close position
+        Returning new position, new cash, cost and trade number
+    '''
+    cash = current_cash + current_position * price
+    cost = cost_per_trade if current_position != 0 else 0 #if position = 0, no trade, no cost
+    num_of_trade = 1 if current_position != 0 else 0
+    return 0, cash, cost, num_of_trade
+
+def _adjust_position(price: float,
+                     notional_exposure: float,
+                     current_position: float,
+                     current_cash: float,
+                     cost_per_trade: float = 1,
+                     use_leverage: bool = True,
+                     minimize_cost: bool = False,
+                     ):
+    '''
+        Adjust position based on the forecast
+        
+        Returning new position, new cash, cost and trade number
+                
+    '''
+    target_share = round(notional_exposure / price, 0)
+    shares_to_trade = target_share - current_position
+    cash_to_trade = shares_to_trade * price
+    if minimize_cost:                
+        if cost_per_trade > 0.01 * abs(cash_to_trade):
+            #if cost is more than 1% of cash to trade, we dont trade
+            # print(f"Cost is more than 1% of cash to trade, we dont trade")
+            # print(f"cash to trade = {cash_to_trade}, price = {price}, shares to trade = {shares_to_trade}")
+            return current_position, current_cash, 0, 0
+    if cash_to_trade > current_cash:
+        if not use_leverage:
+            #we dont have enough cash to trade
+            shares_to_trade = round(current_cash / price, 0)
+            if shares_to_trade == 0:
+                return current_position, current_cash, 0, 0
+            cost = cost_per_trade
+            cash = current_cash - shares_to_trade * price
+            return current_position + shares_to_trade, cash, cost, 1
+        else:
+            #use leverage
+            borrowed_cash = cash_to_trade - current_cash
+            leverage_factor = (cash_to_trade) / (current_cash)
+            # print(f"Leveraged factor = {leverage_factor}")
+            # print(f"borrowing cash of {borrowed_cash}")            
+    cost = cost_per_trade
+    cash = current_cash - cash_to_trade #if we are selling/shorting, shares_to_trade will be negative
+    return target_share, cash, cost, 1
+    
+def _calculate_daily_cash(cash_balance: float,
+                          position: float,
+                          price: float,
+                          dividend: float,
+                          daily_margin_cost: float = 1.02,
+                          daily_short_cost: float = 0.01, #0.1% per day
+                          daily_iob: float = 1.0,
+                          ):
+    '''
+        We want to calculate cash we have at the moment, so that we can decide
+        how much position we can trade
+    '''
+    # if cash is negative, it means we are leveraging
+    cash = cash_balance * daily_iob if cash_balance > 0 else \
+        cash_balance * daily_margin_cost
+    cost_of_holding = 0
+    if cash_balance < 0:
+        cost_of_holding = cash_balance * (1-daily_margin_cost)
+    if position > 0:
+        return cash + position * dividend, cost_of_holding
+    if position < 0:
+        # (position * price * daily_short_cost) is just the cost of shorting
+        # note that because position is negative, we are actually subtracting the cash by cost and dividend
+        cost_of_holding += (-position) * price * daily_short_cost
+        return cash + position * dividend, cost_of_holding
+    return cash, cost_of_holding
+    
 
 def calculate_position_size_from_forecast(forecast: float,
                                           capital: float,
@@ -296,141 +480,3 @@ def calculate_position_size_from_forecast(forecast: float,
     current_notional_exposure = position * price
     deviation_in_exposure = (ideal_notional_exposure - current_notional_exposure) / average_exposure
     return ideal_notional_exposure, deviation_in_exposure
-
-def calculate_number_of_shares(price: float,
-                               capital: float,
-                               risk_target: float,                               
-                               instrument_risk: float,
-                               forecast: float,
-                               ) -> float:
-    notional_exposure = (forecast / 10) * risk_target * capital / instrument_risk
-    shares = round(notional_exposure / price,0)
-    return shares
-
-def trade2(price: pd.Series,
-          forecast: pd.Series,
-          instrument_risk: pd.Series,
-          dividends: pd.Series,
-          initial_capital: float,
-          risk_target: float,
-          start_date: str = "2010-01-03",
-          daily_iob: float = 1,
-          daily_margin_cost: float = 1,
-          daily_short_cost: float = 1,
-          cost_per_trade:float = 1
-          ):
-    '''
-        Make a trade based on the trading system
-    '''
-    # create pd.Series of position starting with 0
-    position = pd.Series(index=price.index, data=0)
-    rebalance = position.copy()
-    exp_delta = position.copy()    
-    cash = position.copy()
-    
-    num_of_trades = position.copy()
-    start_date = find_nearest_trading_date(price.index, start_date)
-    start_index = price.index.get_loc(start_date)
-    cash.iloc[start_index-1] = initial_capital
-    notional_exposure = position.copy()
-    
-    for i in range(start_index, start_index+50):        
-    # for i in range(start_index, len(price)):        
-        #Propogate values forward
-        cash.iloc[i] = calculate_daily_cash(
-            cash_balance=cash.iloc[i-1],
-            position=position.iloc[i-1],
-            price=price.iloc[i],
-            dividend=dividends.iloc[i],
-            daily_iob=daily_iob,
-            daily_margin_cost=daily_margin_cost,
-            daily_short_cost=daily_short_cost,                               
-        )
-        position.iloc[i] = position.iloc[i-1]
-        print(f"Previous cash balance: {cash.iloc[i-1]}")
-        print(f"Current cash balance: {cash.iloc[i]}")
-        
-        if forecast.iloc[i] > 0:
-            if position.iloc[i] <= 0:
-                cash.iloc[i] += position.iloc[i] * price.iloc[i] - \
-                    cost_per_trade * (1 if position.iloc[i] < 0 else 0)
-                print(f"Close short position previously at {position.iloc[i]} at price {price.iloc[i]}")
-                print(f"New cash balance: {cash.iloc[i]}")
-                position.iloc[i] = _sizePosition(price=price.iloc[i],
-                                                 capital=cash.iloc[i],
-                                                 risk_target=risk_target,
-                                                 forecast=forecast.iloc[i],
-                                                 instrument_risk=instrument_risk.iloc[i])
-                cash.iloc[i] -= position.iloc[i] * price.iloc[i] + cost_per_trade
-                num_of_trades.iloc[i] += 1 + (1 if position.iloc[i-1] < 0 else 0)
-                print(f"Open new long position with number of shares: {position.iloc[i]}")
-                print(f"New cash balance: {cash.iloc[i]}")
-                print("=====================================")
-        elif forecast.iloc[i] < 0:
-            if position.iloc[i] >= 0:
-                cash.iloc[i] += position.iloc[i] * price.iloc[i] - \
-                    cost_per_trade * (1 if position.iloc[i] > 0 else 0)
-                print(f"Close long position previously at {position.iloc[i]} at price {price.iloc[i]}")
-                print(f"New cash balance: {cash.iloc[i]}")
-                position.iloc[i] = - _sizePosition(price=price.iloc[i],
-                                                 capital=cash.iloc[i],
-                                                 risk_target=risk_target,
-                                                 forecast=forecast.iloc[i],
-                                                 instrument_risk=instrument_risk.iloc[i])
-                cash.iloc[i] -= position.iloc[i] * price.iloc[i] + cost_per_trade
-                num_of_trades.iloc[i] += 1 + (1 if position.iloc[i-1] > 0 else 0)
-                print(f"Open new short position with number of shares: {position.iloc[i]}")
-                print(f"New cash balance: {cash.iloc[i]}")
-                print("=====================================")
-        else:
-            #signal = 0
-            if position.iloc[i] == 0:
-                continue
-            cash.iloc[i] += position.iloc[i] * price.iloc[i] - cost_per_trade
-            position.iloc[i] = 0
-            num_of_trades.iloc[i] += 1
-        # check for rebalancing
-        delta_exposure, avg_exposure = _getExposureDrift(cash=cash.iloc[i],
-                                                         position=position.iloc[i],
-                                                         price=price.iloc[i],
-                                                         forecast=forecast.iloc[i],
-                                                         risk_target=risk_target,
-                                                         instrument_risk=instrument_risk.iloc[i])
-        exp_delta.iloc[i] = delta_exposure
-        if np.abs(delta_exposure) >= 0.1:
-            shares = round(delta_exposure * avg_exposure / price.iloc[i],0)
-            cash.iloc[i] -= shares * price.iloc[i] + cost_per_trade
-            position.iloc[i] += shares
-            rebalance.iloc[i] += shares
-            num_of_trades.iloc[i] += 1
-            print(f"Adjust position at price {price.iloc[i]}, with current position {position.iloc[i-1]}")
-            print(f"New position: {position.iloc[i]}")
-            print(f"New cash balance: {cash.iloc[i]}")
-            print("=====================================")
-    
-    ### end of loop
-    return cash, position, num_of_trades, notional_exposure
-
-def _getExposureDrift(cash:float,
-                      position:float,
-                      price:float,
-                      forecast:float,
-                      risk_target:float,
-                      instrument_risk:float):
-    capital = cash + price * position
-    exposure = risk_target * capital * forecast / instrument_risk
-    current_exposure = price * position
-    avg_exposure = risk_target * capital / instrument_risk * np.sign(forecast)
-    varient = (exposure - current_exposure) / avg_exposure
-    return varient, avg_exposure
-
-def _sizePosition(price:float,
-                  capital:float,
-                  risk_target:float,
-                  instrument_risk:float,
-                  forecast:float,):
-    exposure = risk_target * capital * np.abs(forecast) / instrument_risk
-    shares = np.floor(exposure / price)
-    if shares * price > capital:
-        return np.floor(capital / price) #we dont leverage
-    return shares

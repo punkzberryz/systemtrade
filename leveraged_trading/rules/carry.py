@@ -23,6 +23,22 @@ def carry_forecast(price: pd.Series,
       signal = signal.fillna(0)
       return signal
 
+def carry_forecast_fx(price: pd.Series,
+                      instrument_risk: pd.Series,
+                      deposit_interest_rate: float = 0.0105,
+                      margin_rate: float = 0.02,
+                      borrow_rate: float = 0.027,
+                      funding_deposit_rate: float = 0.0225,
+                      ):
+    '''
+    Calculate the carry trading rule forecast for forex, given a price
+    '''
+    deposit_interest = (deposit_interest_rate + margin_rate)/2
+    funding_cost = (borrow_rate + funding_deposit_rate)/2
+    signal = (deposit_interest - funding_cost) / instrument_risk
+    signal = signal.fillna(0)
+    return signal
+    
 
 def _calculate_trailing_dividends(dividends: pd.Series) -> pd.Series:
     """

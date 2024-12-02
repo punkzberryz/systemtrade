@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+from scipy.stats import skew
 import lib.repository.repository as repo
 
 def calculate_instrument_risk(price:pd.Series, window:int = 25) -> pd.Series:
@@ -9,7 +10,7 @@ def calculate_instrument_risk(price:pd.Series, window:int = 25) -> pd.Series:
     '''
     percent_return = price.pct_change()
     daily_risk = percent_return.rolling(window=window).std()
-    instrument_risk = daily_risk * np.sqrt(252)
+    instrument_risk = daily_risk * np.sqrt(252)    
     return instrument_risk
 
 def calculate_position_size(price: float, capital: float, target_risk: float, instrument_risk: float) -> float:
@@ -83,7 +84,15 @@ def benchmark_data(ticker: str = "SPY",
                    ) -> pd.DataFrame:    
     instr = repo.Instrument(ticker)
     instr.try_import_data("data/"+ticker+".csv", start_date=start_date)
-    instr.data["position"] = capital / instr.data["PRICE"].iloc[0]
+    instr.data["position"] = np.nan
+    #update position on start_date
+    instr.data.loc[start_date, "position"] = capital / instr.data.loc[start_date, "PRICE"]
+    #forwarrd fill position
+    instr.data["position"] = instr.data["position"].ffill()
+    
+    
+    
+    # instr.data["position"] = capital / instr.data["PRICE"].iloc[0]
     instr.data["pandl"] = instr.data["position"].shift(1) * instr.data["PRICE"].diff()
     instr.data["curve"] = instr.data["pandl"].cumsum()
     return instr.data    
@@ -114,5 +123,11 @@ def getStats(curve: pd.Series,
     strat_dd_days = np.hstack([strat_dd_days,
         (drawdown.index[-1] - strat_dd.index[-1]).days])
     stats['max_drawdown_duration'] = strat_dd_days.max()
+    
+    #Skew
+    pandl = curve.diff()
+    pandl_vals = pd.to_numeric(pandl.values[~pd.isna(pandl.values)], errors='coerce')
+    stats["skew"] = skew(pandl_vals)
+    
     return {k: np.round(v, 4) if type(v) == np.float_ else v
             for k, v in stats.items()} #return as dict, with 4 decimal points

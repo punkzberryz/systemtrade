@@ -165,9 +165,9 @@ class StarterSystem:
     def _calcCash(self, cash_balance, position, price, dividend):
         cash = cash_balance * self.daily_iob if cash_balance > 0 else \
         cash_balance * self.daily_margin_cost
-        if position == 1:
+        if position > 1:
             return cash + position * dividend
-        elif position == -1:
+        elif position < -1:
             return cash - position * dividend - position * price * self.daily_short_cost
         return cash
 
@@ -491,7 +491,7 @@ sig_dict_carry = {
   }
 }
 sig_dict_no_carry = copy(sig_dict_carry)
-ticker = "HAL"
+ticker = "AAPL"
 
 sys_fcast = ForecastStarterSystem(ticker=ticker, signals=sig_dict_carry, end="2024-11-01")
 sys_fcast.run()
