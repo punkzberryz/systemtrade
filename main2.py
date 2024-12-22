@@ -53,7 +53,11 @@ port = Portfolio(
 
 port.add_trading_rules_to_instrument("AAPL", ["ewma64_256", "ewma16_64", "ewma8_32", "breakout20", "breakout10"])
 port.add_trading_rules_to_instrument("^TYX", ["ewma16_64", "ewma8_32", "breakout10"])
-port.add_trading_rules_to_instrument("EURUSD=X", ["ewma64_256", "breakout10", "breakout20"])
+port.add_trading_rules_to_instrument("EURUSD=X", ["ewma8_32", "breakout10", "breakout20"])
+
+aapl_curve = port.get_curve_from_forecast("AAPL", fit_method="bootstrap")
+tyx_curve = port.get_curve_from_forecast("^TYX", fit_method="bootstrap")
+eurusd_curve = port.get_curve_from_forecast("EURUSD=X", fit_method="bootstrap")
 
 position_aapl = port.get_instrument_position_from_forecast("AAPL")
 

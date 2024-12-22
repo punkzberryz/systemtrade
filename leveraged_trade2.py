@@ -16,63 +16,109 @@ from leveraged_trading.calculator import getStats, benchmark_data
 from leveraged_trading.optimization import generate_fitting_dates, optimise_over_periods
 from leveraged_trading.diversification_multiplier import get_diversification_multiplier
 from lib.service.vol import robust_daily_vol_given_price
-
-rule_dict_no_carry = {
-    'MAC' : {
-        0: {'fast': 8,
-            'slow': 32},
-        1: {'fast': 16,
-            'slow': 64},
-        2: {'fast': 32,
-            'slow': 128},
-        3: {'fast': 64,
-            'slow': 256}
-    },
-    'MBO': {
-        0: 20,
-        1: 40,
-        2: 80,
-        3: 160,
-        4: 320
-    }    
-}
-rule_dict_no_carry["CAR"] = {0 : True}
-
+from leveraged_trading.calculator import calculate_instrument_risk, calculate_robust_instrument_risk, calculate_position_size, calculate_stop_loss
+from leveraged_trading.optimization import _equalise_vols, generate_fitting_dates,_addem,_neg_SR, minimize
+from leveraged_trading.trading_portfolio import TradingPortfolio
+from leveraged_trading.rules.ewmac import ewmac_forecast
+from leveraged_trading.rules.breakout import breakout_forecast
+from leveraged_trading.rules.carry import carry_forecast
 # start_date = "2000-01-03"
 # start_date = "2010-01-03"
-start_date = "2016-01-03"
-# start_date = "2024-10-10"
+# start_date = "2014-01-03"
+start_date = "2017-10-10"
 end_date = None
 ticker = "USO"
 capital = 1000
 
-# rule_names = ["mac8_32", "mac16_64", "mac32_128", "mac64_256", "breakout20", "breakout40", "breakout80", "breakout160", "breakout320", "carry_fx"]
-rule_names = ["mac8_32", "mac16_64","breakout20", "breakout40", "carry"]
-# rule_names = ["mac8_32", "mac16_64", "mac32_128", "mac64_256", "breakout20", "breakout40", "breakout80", "breakout160", "breakout320", "carry"]
-# rule_names = ["mac16_64", "mac32_128", "breakout20", "carry"]
 
-rules = TradingRules(rule_names=rule_names)
-aapl = TradingSystem(
-                    ticker=ticker,
-                    # ticker="JASIF.BK",
+rule_names = ["ewmac2_8", "ewmac4_16", "ewmac8_32", "ewmac16_64", "ewmac32_128", "ewmac64_256",
+              "breakout10", "breakout20", "breakout40", "breakout80", "breakout160", "breakout320",
+              "carry",
+            #   "carry_fx",
+              ]
+rule_names2 = ["ewmac2_8", "ewmac4_16", "ewmac8_32", "ewmac16_64", "ewmac32_128", "ewmac64_256",
+              "breakout10", "breakout20", "breakout40", "breakout80", "breakout160", "breakout320",
+            #   "carry",
+              "carry_fx",
+              ]
+# rules = TradingRules(rule_names=rule_names)
+
+tickers = [
+        #stocks
+        # "AAPL", "AES", "HAL", "LULU", "CPALL.BK", "JASIF.BK",
+        # "MSFT", "GOOGL", "META", "SPY", 
+        # #commodities
+        # "CORN", "USO", "IAU",
+        # #fx
+        # "EURUSD=X", "AUDUSD=X", "USDJPY=X",
+        # #crypto
+        # "BTC-USD", "ETH-USD", 
+        # #volatility
+        # "VIXM",
+        # #bond
+        # # "UTHY", "SHY",
+        # "IEF",
+        "JASIF.BK", "CPALL.BK", "TCAP.BK", "HMPRO.BK", "MEGA.BK", "HANA.BK", "COM7.BK"
+        ]
+rules = TradingRules(instrument_tickers=tickers)
+
+port = TradingPortfolio(trading_rules=rules,
+                        optimization_method="one_period",
+                        risk_target=0.12,
+                        )
+port.add_instrument("JASIF.BK",
                     risk_target=0.12,
                     capital=capital,
-                    cost_per_trade=1,
-                    start_date=start_date,
-                    stop_loss_fraction=0.5,
-                    interest_on_balance=0,
+                    rule_names=rule_names,
+                    short_cost=0.02,
                     margin_cost=0.07,
-                    short_cost=0.02,                    
-                    rules=rule_names,
-                    trading_rules=rules,
-                    # optimization_method="one_period",
-                    optimization_method="bootstrap",
-                    deviation_in_exposure_to_trade=0.1                    
+                    interest_on_balance=0.001,
+                    deviation_in_exposure_to_trade=0.1,
                     )
-pandl = aapl.data["curve_pre_cost"].diff()
-ann_std = pandl.std() * np.sqrt(252)
-total = pandl.sum()
-divisor = aapl.number_of_years_trade
-ann_mean = total / divisor
-sharpe = ann_mean / ann_std
-print(sharpe)
+port.add_instrument("CPALL.BK",
+                    risk_target=0.12,
+                    capital=capital,
+                    rule_names=rule_names2,
+                    # rule_names=["breakout10","ewmac8_32","carry_fx",],
+                    short_cost=0.02,
+                    margin_cost=0.07,
+                    interest_on_balance=0.001,
+                    deviation_in_exposure_to_trade=0.1,
+                    )
+port.add_instrument("TCAP.BK",
+                    risk_target=0.12,
+                    capital=capital,
+                    # rule_names=rule_names,
+                    rule_names=["carry", "ewmac16_64", "ewmac32_128", "ewmac64_256"],
+                    # rule_names=["breakout10","ewmac8_32","carry_fx",],
+                    short_cost=0.02,
+                    margin_cost=0.07,
+                    interest_on_balance=0.001,
+                    deviation_in_exposure_to_trade=0.1,
+                    )
+port.add_instrument("MEGA.BK",
+                    risk_target=0.12,
+                    capital=capital,
+                    rule_names=rule_names,
+                    # rule_names=["carry", "ewmac16_64", "ewmac32_128", "ewmac64_256"],
+                    short_cost=0.02,
+                    margin_cost=0.07,
+                    interest_on_balance=0.001,
+                    deviation_in_exposure_to_trade=0.1,
+                    )
+port.add_instrument("COM7.BK",
+                    risk_target=0.12 * 2, #bond has lower volatility, so we double the risk
+                    capital=capital,
+                    rule_names=rule_names,
+                    short_cost=0.02,
+                    margin_cost=0.07,
+                    interest_on_balance=0.001,
+                    deviation_in_exposure_to_trade=0.1,
+                    )
+port.get_simulated_stats()
+port.optimize(fit_method="one_period")
+
+
+# ief = port.instruments["IEF"]
+# ief.risk_target = 0.12
+# ief.re_trade(rules, optimization_method="one_period")

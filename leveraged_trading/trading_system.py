@@ -24,8 +24,7 @@ class TradingSystem:
                  cost_per_trade: float = 1, #in unit price
                  margin_cost: float = 0.04, #in percentage
                  interest_on_balance: float = 0.0, #in percentage
-                 short_cost: float = 0.001, #in percentage
-                 stop_loss_fraction: float = 0.5, # 50% of ATR
+                 short_cost: float = 0.001, #in percentage                 
                  start_date: str = "2012-01-03",
                  rules: list[str] = None,                 
                  trading_rules: TradingRules = None,
@@ -42,8 +41,7 @@ class TradingSystem:
         self.interest_on_balance = interest_on_balance
         self.daily_iob = (1 + self.interest_on_balance) ** (1/252)
         self.daily_margin_cost = (1 + self.margin_cost) ** (1/252)
-        self.daily_short_cost = self.short_cost / 360
-        self.stop_loss_fraction = stop_loss_fraction
+        self.daily_short_cost = self.short_cost / 360        
         self.start_date = start_date
         self.deviation_in_exposure_to_trade = deviation_in_exposure_to_trade
         self.print_trade = print_trade
@@ -51,31 +49,30 @@ class TradingSystem:
         #get instrument data
         end_date = "2001-10-01"
         
-        instru = repo.Instrument(ticker)
-        instru.try_import_data(start_date="2000-01-01", filename="data/"+ticker+".csv")
+        # instru = repo.Instrument(ticker)
+        instru = trading_rules.instruments[ticker]
+        # instru.try_import_data(start_date="2000-01-01", filename="data/"+ticker+".csv")
         # self.price = instru.data["PRICE"][start_date:end_date]
         self.data = pd.DataFrame()
         self.data["PRICE"] = instru.data["PRICE"]
         self.data["DIVIDENDS"] = instru.data["DIVIDENDS"]
-        self.data["instrument_risk"] = calculate_instrument_risk(self.data["PRICE"], window=25)                
+        # self.data["instrument_risk"] = calculate_instrument_risk(self.data["PRICE"], window=25)                
+        self.data["instrument_risk"] = instru.data["instrument_risk"]
         self.rules = rules
         
-        self.data["signal"] = trading_rules.get_combined_forecast_signal(price=self.data["PRICE"],
-                                                   dividends=self.data["DIVIDENDS"],
-                                                   instrument_risk=self.data["instrument_risk"],
+        self.data["signal"], self.weights = trading_rules.get_combined_forecast_signal(ticker,
                                                    target_risk=self.risk_target,
                                                    capital=self.capital,                                                
                                                    fit_method=optimization_method,
+                                                   new_rule_names=self.rules,
                                                    )
         self.trade()
         self._calcBenchmark(ticker="SPY")
         self.get_stats()
-        self.plot()
+        # self.plot()
 
     def re_trade(self, trading_rules: TradingRules, optimization_method: str = "bootstrap"):
-        self.data["signal"] = trading_rules.get_combined_forecast_signal(price=self.data["PRICE"],
-                                                   dividends=self.data["DIVIDENDS"],
-                                                   instrument_risk=self.data["instrument_risk"],
+        self.data["signal"], self.weights = trading_rules.get_combined_forecast_signal(ticker=self.ticker,
                                                    target_risk=self.risk_target,
                                                    capital=self.capital,        
                                                    fit_method=optimization_method,
@@ -89,7 +86,7 @@ class TradingSystem:
         '''
             Make a trade based on the trading system
         '''
-        position = pd.Series(index=self.data.index, data=0)
+        position = pd.Series(index=self.data.index, data=0.0)
         cash = position.copy()
         num_of_trades = position.copy()
         start_date = find_nearest_trading_date(self.data["PRICE"].index, self.start_date)
@@ -120,8 +117,8 @@ class TradingSystem:
             if np.isnan(self.data["signal"].iloc[i]):
                 continue
             row = self.data.iloc[i]
-            capital = cash.iloc[i] + position.iloc[i] * row["PRICE"]            
-            ideal_exposure, deviation_in_exposure = calculate_position_size_from_forecast(forecast=row["signal"],
+            capital = cash.iloc[i] + round(position.iloc[i] * row["PRICE"], 8)
+            ideal_exposure, deviation_in_exposure = _calculate_position_size_from_forecast(forecast=row["signal"],
                                                                                             capital=capital,
                                                                                             risk_target=self.risk_target,
                                                                                             instrument_risk=row["instrument_risk"],
@@ -129,7 +126,7 @@ class TradingSystem:
                                                                                             price=row["PRICE"],
                                                                                             )
             notional_exposure.iloc[i] = ideal_exposure
-            current_exposure.iloc[i] = position.iloc[i] * row["PRICE"]
+            current_exposure.iloc[i] = round(position.iloc[i] * row["PRICE"], 8)
             
             if abs(deviation_in_exposure) > self.deviation_in_exposure_to_trade:
                 # deviation is more than 10%, we trade / adjust position
@@ -450,22 +447,22 @@ def _calculate_daily_cash(cash_balance: float,
         how much position we can trade
     '''
     # if cash is negative, it means we are leveraging
-    cash = cash_balance * daily_iob if cash_balance > 0 else \
-        cash_balance * daily_margin_cost
+    cash = round(cash_balance * daily_iob, 8) if cash_balance > 0 else \
+        round(cash_balance * daily_margin_cost, 8)
     cost_of_holding = 0
     if cash_balance < 0:
-        cost_of_holding = cash_balance * (1-daily_margin_cost)
+        cost_of_holding = round(cash_balance * (1-daily_margin_cost), 8)
     if position > 0:
-        return cash + position * dividend, cost_of_holding
+        return cash + round(position * dividend, 8), cost_of_holding
     if position < 0:
         # (position * price * daily_short_cost) is just the cost of shorting
         # note that because position is negative, we are actually subtracting the cash by cost and dividend
-        cost_of_holding += (-position) * price * daily_short_cost
-        return cash + position * dividend, cost_of_holding
+        cost_of_holding += round((-position) * price * daily_short_cost, 8)
+        return cash + round(position * dividend, 8), cost_of_holding
     return cash, cost_of_holding
     
 
-def calculate_position_size_from_forecast(forecast: float,
+def _calculate_position_size_from_forecast(forecast: float,
                                           capital: float,
                                           risk_target: float,
                                           instrument_risk: float,
@@ -473,10 +470,10 @@ def calculate_position_size_from_forecast(forecast: float,
                                           price: pd.Series
                                           ) -> float:                    
     ### ideal notional exposure
-    ideal_notional_exposure = forecast / 10 * risk_target * capital  / instrument_risk    
+    ideal_notional_exposure = round(forecast / 10 * risk_target * capital  / instrument_risk, 8)    
     ### average exposure
-    average_exposure = risk_target * capital / instrument_risk
+    average_exposure = round(risk_target * capital / instrument_risk, 8)
     ### current notional exposure
-    current_notional_exposure = position * price
-    deviation_in_exposure = (ideal_notional_exposure - current_notional_exposure) / average_exposure
+    current_notional_exposure = round(position * price, 8)
+    deviation_in_exposure = round((ideal_notional_exposure - current_notional_exposure) / average_exposure, 8)
     return ideal_notional_exposure, deviation_in_exposure

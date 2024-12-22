@@ -6,20 +6,20 @@ def carry_forecast(price: pd.Series,
           instrument_risk: pd.Series, # volatility in percentage from return std
           margin_cost: float = 0.04,
           interest_on_balance: float = 0.0,
-          short_cost: float = 0.001,     
+          short_cost: float = 0.01, #annual short cost percentage
           **kwargs     
           ):
       '''
       Calculate the carry trading rule forecast, given a price
       '''
       
-      ttm_div = dividends.rolling(window=252).sum() # sum of dividends in the last 252 trading days
+      ttm_div = dividends.rolling(window=252, min_periods=1).sum() # sum of dividends in the last 252 trading days
       # ttm_div = _calculate_trailing_dividends(dividends)
       div_yield = ttm_div / price # dividend yield
       net_long = div_yield - margin_cost
-      net_short = interest_on_balance - short_cost - ttm_div
+      net_short = interest_on_balance - short_cost - ttm_div #we try to earn from interest but deducted by short cost and dividend
       net_return = (net_long - net_short) / 2
-      signal = net_return / instrument_risk
+      signal = net_return / (instrument_risk / np.sqrt(252)) # daily the risk
       signal = signal.fillna(0)
       return signal
 
@@ -29,13 +29,14 @@ def carry_forecast_fx(price: pd.Series,
                       margin_rate: float = 0.02,
                       borrow_rate: float = 0.027,
                       funding_deposit_rate: float = 0.0225,
+                      **kwargs   
                       ):
     '''
     Calculate the carry trading rule forecast for forex, given a price
     '''
     deposit_interest = (deposit_interest_rate + margin_rate)/2
     funding_cost = (borrow_rate + funding_deposit_rate)/2
-    signal = (deposit_interest - funding_cost) / instrument_risk
+    signal = (deposit_interest - funding_cost) / (instrument_risk / np.sqrt(252))
     signal = signal.fillna(0)
     return signal
     

@@ -16,12 +16,13 @@ def get_diversification_multiplier(forecasts_data: pd.DataFrame,
         So we need to scale up the combined forecast to match the volatility of target (original forecast)
         We get such scaling factor by calculating the diversification multiplier
     '''
-    fit_dates = generate_fitting_dates(data=forecasts_data, date_method="expanding", rollyears=20)
+    weekly_forecasts = forecasts_data.resample("W").last()
+    fit_dates = generate_fitting_dates(data=weekly_forecasts, date_method="expanding", rollyears=20)
     mult_list = []
     for fit_tuple in fit_dates:
         fit_start, fit_end, period_start, period_end = fit_tuple
         # Get the data subset for this period
-        period_subset_data = forecasts_data[fit_start:fit_end]
+        period_subset_data = weekly_forecasts[fit_start:fit_end]
         print(f"Calculating diversification multiplier for {period_start} to {period_end}")
         # Get the correlation matrix for this period
         
@@ -46,7 +47,7 @@ def get_diversification_multiplier(forecasts_data: pd.DataFrame,
     # Convert list to series, where index is the array of period start, and value is the diversification multiplier
     mult_series = pd.Series([x[1] for x in mult_list], index=[x[0] for x in mult_list])
     # return mult_series
-    mult_series_aligned = mult_series.reindex(forecasts_data.index, method="ffill")
+    mult_series_aligned = mult_series.reindex(weekly_forecasts.index, method="ffill")
     
     if is_smooth:
         mult_series_aligned = mult_series_aligned.ewm(span=125, min_periods=20).mean() #smooth the multiplier

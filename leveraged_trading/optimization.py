@@ -1,3 +1,4 @@
+import matplotlib.pyplot as plt
 import datetime
 import pandas as pd
 import numpy as np
@@ -68,12 +69,12 @@ def markosolver(returns: pd.DataFrame, equalisemeans=False, equalisevols=True, d
        
     Note if usemeans=True and equalisevols=True effectively assumes all assets have same sharpe ratio
     
-    """
+    """    
+
     if equalisevols:
         use_returns=_equalise_vols(returns, default_vol)
     else:
         use_returns=returns
-    
 
     ## Sigma matrix: Calculates the covariance matrix of
     sigma=use_returns.cov().values
@@ -151,21 +152,25 @@ def optimise_over_periods(data: pd.DataFrame, date_method: str, fit_method: str,
     
     
     """
+    weekly_data=data.resample("W").sum()
     
     ## Get the periods
-    fit_periods=generate_fitting_dates(data,date_method = date_method, rollyears=rollyears)
+    fit_periods=generate_fitting_dates(weekly_data,date_method = date_method, rollyears=rollyears)
     
     ## Do the fitting
     ## Build up a list of weights, which we'll concat
     weight_list=[]
     for fit_tuple in fit_periods:
         ## Fit on the slice defined by first two parts of the tuple
-        period_subset_data=data[fit_tuple[0]:fit_tuple[1]]
+        period_subset_data=weekly_data[fit_tuple[0]:fit_tuple[1]]
         
         ## Can be slow, if bootstrapping, so indicate where we are
         
         # print "Fitting data for %s to %s" % (str(fit_tuple[2]), str(fit_tuple[3]))
         print("Fitting data for %s to %s" % (str(fit_tuple[2]), str(fit_tuple[3])))
+        print(f"With data from {str(fit_tuple[0])} to {str(fit_tuple[1])}")
+        print("-"*40)
+        period_subset_data = _apply_exponential_weight(period_subset_data, halflife=52*5) #apply weighted to attenuate data, while the last five years are more important
         
         if fit_method=="one_period":
             weights=markosolver(period_subset_data, equalisemeans=equalisemeans, equalisevols=equalisevols)
@@ -180,7 +185,7 @@ def optimise_over_periods(data: pd.DataFrame, date_method: str, fit_method: str,
         dindex=[fit_tuple[2]+datetime.timedelta(seconds=1), fit_tuple[3]-datetime.timedelta(seconds=1)]
         
         ## create a double row to delineate start and end of test period
-        weight_row=pd.DataFrame([weights]*2, index=dindex, columns=data.columns)
+        weight_row=pd.DataFrame([weights]*2, index=dindex, columns=weekly_data.columns)
         
         weight_list.append(weight_row)
         
@@ -243,3 +248,43 @@ def _neg_SR(weights, sigma, mus):
 def _variance(weights, sigma):
     ## returns the variance (NOT standard deviation) given weights and sigma
     return (np.matrix(weights)*sigma*np.matrix(weights).transpose())[0,0]
+
+def _apply_exponential_weight(df, halflife=None, alpha=None, columns=None):
+    """
+    Apply exponential weighting to specified columns of a DataFrame.
+    
+    Parameters:
+    - df: Input DataFrame
+    - halflife: Number of periods for weight to reduce by half
+    - alpha: Explicit decay rate (alternative to halflife)
+    - columns: List of columns to weight (if None, weight all columns)
+    
+    Returns:
+    - DataFrame with weighted columns
+    """
+    # Calculate alpha from halflife if not provided
+    if halflife is not None:
+        alpha = 1 - np.exp(np.log(0.5) / halflife)
+    elif alpha is None:
+        # Default to a standard decay if neither halflife nor alpha is provided
+        alpha = 0.3
+    
+    # Validate alpha
+    if not 0 < alpha <= 1:
+        raise ValueError("Alpha must be between 0 and 1")
+    
+    # Calculate weights
+    weights = np.power(1 - alpha, np.arange(len(df))[::-1])
+    
+    # Create a copy of the DataFrame to avoid modifying the original
+    weighted_df = df.copy()
+    
+    # Determine which columns to weight
+    if columns is None:
+        columns = df.columns
+    
+    # Multiply specified columns by the weights
+    for column in columns:
+        weighted_df[column] = df[column] * weights
+    
+    return weighted_df

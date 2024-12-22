@@ -138,12 +138,14 @@ class Portfolio:
                                      annual_cash_vol_target=annual_cash_vol_target,
                                      value_per_point=value_per_point, 
                                      fx_rate=None)
-        
+        print(vol_scalar.tail())
         forecast = self.get_forecast_combined_for_instrument(instrument_code)
+        print(forecast.tail())
         # scale forecast
         scaled_forecast = forecast * vol_scalar
-        
+        print(scaled_forecast.tail())
         # Position = scalar * scaled forecast
         position = vol_scalar * scaled_forecast
+        print(position.tail())
         
         return position
