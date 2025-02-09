@@ -185,8 +185,8 @@ class TradingRules:
         algined_forecast_scalar = forecast_scalar.reindex(raw_forecast.index, method="ffill")
         if rule_name == "carry_fx" or rule_name == "carry":
             forecast_scalar = calculate_forecast_scalar(pd.DataFrame(raw_forecast))
-            algined_forecast_scalar = forecast_scalar.reindex(raw_forecast.index, method="ffill") #using all forecast carry data is not accurate, some data is too exstreme, so we scale based on each instrument's forecast
-            # algined_forecast_scalar = SCALE_FACTOR_LOOKUP[rule_name]            
+            # algined_forecast_scalar = forecast_scalar.reindex(raw_forecast.index, method="ffill") #using all forecast carry data is not accurate, some data is too exstreme, so we scale based on each instrument's forecast
+            algined_forecast_scalar = SCALE_FACTOR_LOOKUP[rule_name] #for carry rule, we use fixed scale factor because it's more accurate
         forecast = raw_forecast * algined_forecast_scalar
         # return forecast
         return _cap_forecast(forecast, forecast_cap=20)

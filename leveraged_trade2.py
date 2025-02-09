@@ -25,7 +25,7 @@ from leveraged_trading.rules.carry import carry_forecast
 # start_date = "2000-01-03"
 # start_date = "2010-01-03"
 # start_date = "2014-01-03"
-start_date = "2017-10-10"
+start_date = "2022-10-10"
 end_date = None
 ticker = "USO"
 capital = 1000
@@ -39,11 +39,18 @@ rule_names = ["ewmac2_8", "ewmac4_16", "ewmac8_32", "ewmac16_64", "ewmac32_128",
 rule_names2 = ["ewmac2_8", "ewmac4_16", "ewmac8_32", "ewmac16_64", "ewmac32_128", "ewmac64_256",
               "breakout10", "breakout20", "breakout40", "breakout80", "breakout160", "breakout320",
             #   "carry",
+              # "carry_fx",
+              ]
+rule_names3 = ["ewmac2_8", "ewmac4_16", "ewmac8_32", "ewmac16_64", "ewmac32_128", "ewmac64_256",
+              "breakout10", "breakout20", "breakout40", "breakout80", "breakout160", "breakout320",
+            #   "carry",
               "carry_fx",
               ]
 # rules = TradingRules(rule_names=rule_names)
 
 tickers = [
+        #mag7
+        'AAPL', 'MSFT', 'GOOGL', 'META', 'AMZN', 'NVDA', 'TSLA'
         #stocks
         # "AAPL", "AES", "HAL", "LULU", "CPALL.BK", "JASIF.BK",
         # "MSFT", "GOOGL", "META", "SPY", 
@@ -58,65 +65,89 @@ tickers = [
         # #bond
         # # "UTHY", "SHY",
         # "IEF",
-        "JASIF.BK", "CPALL.BK", "TCAP.BK", "HMPRO.BK", "MEGA.BK", "HANA.BK", "COM7.BK"
+        # "JASIF.BK", "CPALL.BK", "TCAP.BK", "HMPRO.BK", "MEGA.BK", "HANA.BK", "COM7.BK"
         ]
 rules = TradingRules(instrument_tickers=tickers)
 
 port = TradingPortfolio(trading_rules=rules,
-                        optimization_method="one_period",
-                        risk_target=0.12,
+                        # optimization_method="bootstrap",
+                        risk_target=0.3,
+                        start_date=start_date
                         )
-port.add_instrument("JASIF.BK",
-                    risk_target=0.12,
-                    capital=capital,
-                    rule_names=rule_names,
-                    short_cost=0.02,
-                    margin_cost=0.07,
-                    interest_on_balance=0.001,
-                    deviation_in_exposure_to_trade=0.1,
-                    )
-port.add_instrument("CPALL.BK",
-                    risk_target=0.12,
-                    capital=capital,
-                    rule_names=rule_names2,
-                    # rule_names=["breakout10","ewmac8_32","carry_fx",],
-                    short_cost=0.02,
-                    margin_cost=0.07,
-                    interest_on_balance=0.001,
-                    deviation_in_exposure_to_trade=0.1,
-                    )
-port.add_instrument("TCAP.BK",
-                    risk_target=0.12,
-                    capital=capital,
-                    # rule_names=rule_names,
-                    rule_names=["carry", "ewmac16_64", "ewmac32_128", "ewmac64_256"],
-                    # rule_names=["breakout10","ewmac8_32","carry_fx",],
-                    short_cost=0.02,
-                    margin_cost=0.07,
-                    interest_on_balance=0.001,
-                    deviation_in_exposure_to_trade=0.1,
-                    )
-port.add_instrument("MEGA.BK",
-                    risk_target=0.12,
-                    capital=capital,
-                    rule_names=rule_names,
-                    # rule_names=["carry", "ewmac16_64", "ewmac32_128", "ewmac64_256"],
-                    short_cost=0.02,
-                    margin_cost=0.07,
-                    interest_on_balance=0.001,
-                    deviation_in_exposure_to_trade=0.1,
-                    )
-port.add_instrument("COM7.BK",
-                    risk_target=0.12 * 2, #bond has lower volatility, so we double the risk
-                    capital=capital,
-                    rule_names=rule_names,
-                    short_cost=0.02,
-                    margin_cost=0.07,
-                    interest_on_balance=0.001,
-                    deviation_in_exposure_to_trade=0.1,
-                    )
-port.get_simulated_stats()
-port.optimize(fit_method="one_period")
+# port.add_instrument("AAPL",
+#                     risk_target=0.3,
+#                     capital=capital,
+#                     rule_names=rule_names,
+#                     short_cost=0.02,
+#                     margin_cost=0.07,
+#                     interest_on_balance=0.001,
+#                     deviation_in_exposure_to_trade=1,
+#                     )
+# port.add_instrument("MSFT",
+#                     risk_target=0.3,
+#                     capital=capital,
+#                     rule_names=rule_names,
+#                     # rule_names=["breakout10","ewmac8_32","carry_fx",],
+#                     short_cost=0.02,
+#                     margin_cost=0.07,
+#                     interest_on_balance=0.001,
+#                     deviation_in_exposure_to_trade=1,
+#                     )
+# port.add_instrument("GOOGL",
+#                     risk_target=0.3,
+#                     capital=capital,
+#                     rule_names=rule_names,
+#                     # rule_names=["breakout10","ewmac8_32","carry_fx",],
+#                     short_cost=0.02,
+#                     margin_cost=0.07,
+#                     interest_on_balance=0.001,
+#                     deviation_in_exposure_to_trade=1,
+#                     )
+# port.add_instrument("META",
+#                     risk_target=0.3,
+#                     capital=capital,
+#                     rule_names=rule_names,
+#                     # rule_names=["breakout10","ewmac8_32","carry_fx",],
+#                     short_cost=0.02,
+#                     margin_cost=0.07,
+#                     interest_on_balance=0.001,
+#                     deviation_in_exposure_to_trade=1,
+#                     )
+# port.add_instrument("AMZN",
+#                     risk_target=0.3,
+#                     capital=capital,
+#                     rule_names=rule_names,
+#                     # rule_names=["breakout10","ewmac8_32","carry_fx",],
+#                     short_cost=0.02,
+#                     margin_cost=0.07,
+#                     interest_on_balance=0.001,
+#                     deviation_in_exposure_to_trade=1,
+#                     )
+# port.add_instrument("NVDA",
+#                     risk_target=0.3,
+#                     capital=capital,
+#                     rule_names=rule_names,
+#                     # rule_names=["breakout10","ewmac8_32","carry_fx",],
+#                     short_cost=0.02,
+#                     margin_cost=0.07,
+#                     interest_on_balance=0.001,
+#                     deviation_in_exposure_to_trade=1,
+#                     )
+# port.add_instrument("TSLA",
+#                     risk_target=0.3,
+#                     capital=capital,
+#                     rule_names=rule_names,
+#                     # rule_names=["breakout10","ewmac8_32","carry_fx",],
+#                     short_cost=0.02,
+#                     margin_cost=0.07,
+#                     interest_on_balance=0.001,
+#                     deviation_in_exposure_to_trade=1,
+#                     )
+
+# port.get_simulated_stats()
+# port.optimize(
+#   # fit_method="one_period"
+#   )
 
 
 # ief = port.instruments["IEF"]

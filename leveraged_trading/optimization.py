@@ -170,7 +170,8 @@ def optimise_over_periods(data: pd.DataFrame, date_method: str, fit_method: str,
         print("Fitting data for %s to %s" % (str(fit_tuple[2]), str(fit_tuple[3])))
         print(f"With data from {str(fit_tuple[0])} to {str(fit_tuple[1])}")
         print("-"*40)
-        period_subset_data = _apply_exponential_weight(period_subset_data, halflife=52*5) #apply weighted to attenuate data, while the last five years are more important
+        
+        # period_subset_data = _apply_exponential_weight(period_subset_data, halflife=52*5) #apply weighted to attenuate data, while the last five years are more important
         
         if fit_method=="one_period":
             weights=markosolver(period_subset_data, equalisemeans=equalisemeans, equalisevols=equalisevols)
