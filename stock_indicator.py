@@ -6,31 +6,68 @@ from stock_indicator.fetch_data import DataFetcher
 from stock_indicator.forecast import ForecastSystem, default_rules
 from stock_indicator.portfolio import Portfolio
 from stock_indicator.strategy.buy_strong_signal import BuyStrongSignal
-start_date = "2014-01-03"
+from stock_indicator.strategy.buy_and_hold import BuyAndHold
+from stock_indicator.strategy.benchmark import Benchmark
+from leveraged_trading.util import find_nearest_trading_date
+from scipy.stats import skew
 
+start_date = "2023-01-03"
+dca_capital = 1000
 instrument_list = [
     {
-        'ticker': 'AAPL',
+        'ticker': 'ZM',
         'rules': default_rules
     },
     {
-        'ticker': 'TSLA',
+        'ticker': 'PAYC',
         'rules': default_rules
     },
     {
-        'ticker': 'NVDA',
+        'ticker': 'CRWD',
+        'rules': default_rules
+    },
+    {
+        'ticker': 'LMND',
+        'rules': default_rules
+    },
+    {
+        'ticker': 'UPST',
+        'rules': default_rules
+    },
+    {
+        'ticker': 'LULU',
         'rules': default_rules
     },
 ]
 port = Portfolio(instrument_list=instrument_list)
+benchmark = Benchmark(symbol="SPY",
+                      dca_capital=dca_capital,
+                      start_date=start_date)
+buystrong = BuyStrongSignal(port=port,
+                            dca_capital=dca_capital,
+                            start_date=start_date)
+buyandhold = BuyAndHold(port=port,
+                        dca_capital=dca_capital,
+                        start_date=start_date)
 
-strategy = BuyStrongSignal()
-strategy.trade(port=port)
-# aaplForecast = ForecastSystem(ticker="AAPL",
-#                             #   start_date=start_date
-#                              )
-# aaplForecast.data["EWMAC16_64"].plot()
-# aaplForecast.data["SIGNAL"].plot()
-# aaplForecast.data["CARRY"].plot()
+curve = pd.DataFrame()
+curve["BUY STRONG"] = buystrong.total_curve
+curve["BUY AND HOLD"] = buyandhold.total_curve
+curve["SPY"] = benchmark.total_curve
 
-# plt.show()
+
+colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+fig, ax = plt.subplots(2, figsize=(15, 10))
+ax[0].plot(curve.loc[start_date:], label=curve.columns)
+ax[0].set_ylabel('Curve ($)')
+ax[0].set_xlabel('Date')
+ax[0].legend(loc=1)
+ax[1].set_title(f'Cumulative Returns of each strategy')
+
+ax[1].plot(buystrong.curve.loc[start_date:], label=buystrong.curve.columns)
+ax[1].set_ylabel('Buy and hold Curve ($)')
+ax[1].set_xlabel('Date')
+ax[1].set_title(f'Cumulative Returns of each instrument in Buy Strong Strategy')
+ax[1].legend(loc=2)
+plt.tight_layout()
+plt.show()

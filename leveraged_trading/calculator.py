@@ -8,7 +8,7 @@ def calculate_instrument_risk(price:pd.Series, window:int = 25) -> pd.Series:
         calculate daily risk of the instrument, using 25 days rolling window
         then return annualized risk by multiplying by sqrt(252) (trading days in a year)
     '''
-    percent_return = price.pct_change()
+    percent_return = price.pct_change(fill_method=None)
     daily_risk = percent_return.rolling(window=window).std()
     instrument_risk = daily_risk * np.sqrt(252)    
     return instrument_risk
@@ -20,7 +20,7 @@ def calculate_robust_instrument_risk(price: pd.Series, window:int = 35) -> pd.Se
         
         we discard lowest 5% std because it may lead to overestimation of risk        
     '''
-    percent_return = price.pct_change()
+    percent_return = price.pct_change(fill_method=None)
     daily_risk = percent_return.ewm(span=window, adjust=True, min_periods=10).std()
     # daily_risk = percent_return.rolling(window=25).std()
     daily_risk[daily_risk < 1e-10] = 1e-10

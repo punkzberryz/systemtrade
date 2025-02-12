@@ -1,6 +1,7 @@
 import pandas as pd
 
-def find_nearest_trading_date(data_index, target_date):
+def find_nearest_trading_date(data_index:pd.Index,
+                              target_date: str):
     """
     Find the nearest available trading date in the data index.
     
@@ -9,8 +10,10 @@ def find_nearest_trading_date(data_index, target_date):
         target_date: str in 'YYYY-MM-DD' format or datetime-like object
         
     Returns:
-        pandas Timestamp of nearest available trading date
+        pandas Timestamp of nearest available trading date    
     """
+        
+    
     target = pd.to_datetime(target_date)
     
     # Convert target to naive datetime if it's not timezone-aware
