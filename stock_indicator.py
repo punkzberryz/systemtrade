@@ -11,15 +11,27 @@ from stock_indicator.strategy.benchmark import Benchmark
 from leveraged_trading.util import find_nearest_trading_date
 from scipy.stats import skew
 
-start_date = "2023-01-03"
+start_date = "2024-01-03"
 dca_capital = 1000
 instrument_list = [
     {
-        'ticker': 'ZM',
+        'ticker': 'META',
         'rules': default_rules
     },
     {
-        'ticker': 'PAYC',
+        'ticker': 'NFLX',
+        'rules': default_rules
+    },
+    {
+        'ticker': 'AMZN',
+        'rules': default_rules
+    },
+    {
+        'ticker': 'AAPL',
+        'rules': default_rules
+    },
+    {
+        'ticker': 'NVDA',
         'rules': default_rules
     },
     {
@@ -27,15 +39,19 @@ instrument_list = [
         'rules': default_rules
     },
     {
-        'ticker': 'LMND',
+        'ticker': 'TOST',
         'rules': default_rules
     },
     {
-        'ticker': 'UPST',
+        'ticker': 'DUOL',
         'rules': default_rules
     },
     {
-        'ticker': 'LULU',
+        'ticker': 'MNDY',
+        'rules': default_rules
+    },
+    {
+        'ticker': 'UBER',
         'rules': default_rules
     },
 ]
