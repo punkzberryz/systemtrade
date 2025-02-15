@@ -57,9 +57,8 @@ class ForecastSystem:
         self.ticker = ticker
         
         #import data
-        repo = DataFetcher(ticker)
-        # repo.fetch_yf_data(start_date=start_date)
-        repo.try_import_data(filename="data/"+ticker+".csv", start_date=start_date)
+        repo = DataFetcher(ticker)        
+        repo.try_import_data(filename="data/"+ticker+".csv", start_date=start_date, update_data=True)
         self.data = repo.data.resample("B").last().ffill()
         self._calc_annual_returns_volatility()
         self.rules = rules   

@@ -8,7 +8,7 @@ from stock_indicator.fetch_data import DataFetcher
 class Benchmark(Strategy):
     def __init__(self,
                  dca_capital:float = 1.0e3,
-                 start_date:str = "2020-01-03",
+                 start_date:str = "1990-01-03",
                  symbol: str = "SPY"
                  ): 
         super().__init__(start_date=start_date,

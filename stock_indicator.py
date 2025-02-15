@@ -11,7 +11,9 @@ from stock_indicator.strategy.benchmark import Benchmark
 from leveraged_trading.util import find_nearest_trading_date
 from scipy.stats import skew
 
-start_date = "2024-01-03"
+
+start_date = "2023-01-03"
+
 dca_capital = 1000
 instrument_list = [
     {
@@ -62,15 +64,16 @@ benchmark = Benchmark(symbol="SPY",
 buystrong = BuyStrongSignal(port=port,
                             dca_capital=dca_capital,
                             start_date=start_date)
-buyandhold = BuyAndHold(port=port,
+buyandhold = BuyAndHold(port=port,                        
                         dca_capital=dca_capital,
                         start_date=start_date)
+
+buystrong.get_latest_indicator()
 
 curve = pd.DataFrame()
 curve["BUY STRONG"] = buystrong.total_curve
 curve["BUY AND HOLD"] = buyandhold.total_curve
 curve["SPY"] = benchmark.total_curve
-
 
 colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
 fig, ax = plt.subplots(2, figsize=(15, 10))

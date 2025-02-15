@@ -1,6 +1,6 @@
 import yfinance as yf
 from typing import Union, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import pandas as pd
 import numpy as np
 
@@ -27,17 +27,29 @@ class DataFetcher():
             filename = self.symbol + "_data.csv"
         self.data.to_csv(filename)
         
-    def import_data(self, filename: str = None):
+    def import_data(self, filename: str = None, update_data: bool = False):
         if filename is None:
             filename = self.symbol + "_data.csv"
         data = pd.read_csv(filename)
         data.set_index("Date", inplace=True)        
         data.index = pd.to_datetime(data.index, utc=True) #convert date column to datetime
         self.data = data
+        #check if latest date is today, if not, fetch new data and append
+        latest_date = datetime.now(timezone.utc)
+        if self.data.index[-1] < latest_date:
+            print("Fetching new data")
+            old_data = self.data.copy()
+            self.fetch_yf_data(start_date=self.data.index[-1], end_date=latest_date)
+            self.data = pd.concat([old_data[:-1], self.data], axis=0)
+            #convert date column to datetime
+            self.data.index = pd.to_datetime(data.index, utc=True)
+            print("Data appended successfully")
+            if update_data:
+                self.export_data(filename)
 
-    def try_import_data(self, filename: str = None, start_date: Optional[Union[str, datetime]] = None):
+    def try_import_data(self, filename: str = None, start_date: Optional[Union[str, datetime]] = None, update_data: bool = False):
         try:
-            self.import_data(filename)
+            self.import_data(filename, update_data=update_data)
             print("Data imported successfully")
         except:
             print("Data import failed, let's fetch data")

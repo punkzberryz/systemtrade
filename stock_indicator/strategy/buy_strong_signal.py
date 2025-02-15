@@ -13,6 +13,23 @@ class BuyStrongSignal(Strategy):
         super().__init__(start_date=start_date,
                          dca_capital=dca_capital)
         self.trade(port=port)
+    
+    def get_latest_indicator(self):
+        '''
+            Get the latest indicator
+        '''
+        signals = self.signals.iloc[-1]
+        weights = get_weight_from_signals(signals, min_weight=0.1)
+        weights = weights[weights>0]
+        print("Latest Signals:")
+        print("-"*75)
+        print(signals)
+        print("-"*75)
+        print("Weights:")
+        print("-"*75)
+        print(weights)
+        print("-"*75)        
+        
         
     def trade(self,
               port: Portfolio,
