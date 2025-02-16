@@ -3,12 +3,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 import yfinance as yf
 from stock_indicator.fetch_data import DataFetcher
-from stock_indicator.forecast import ForecastSystem, default_rules
+from stock_indicator.forecast.forecast import ForecastSystem, default_rules
 from stock_indicator.portfolio import Portfolio
 from stock_indicator.strategy.buy_strong_signal import BuyStrongSignal
 from stock_indicator.strategy.buy_and_hold import BuyAndHold
 from stock_indicator.strategy.benchmark import Benchmark
-from leveraged_trading.util import find_nearest_trading_date
+from stock_indicator.util import find_nearest_trading_date
 from scipy.stats import skew
 
 

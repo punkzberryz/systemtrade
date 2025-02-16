@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from stock_indicator.forecast import ForecastSystem
+from stock_indicator.forecast.forecast import ForecastSystem
 
 class Portfolio:
     def __init__(self,

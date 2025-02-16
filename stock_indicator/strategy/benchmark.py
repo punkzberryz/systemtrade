@@ -1,8 +1,7 @@
 import pandas as pd
 import numpy as np
 from stock_indicator.strategy.strategy import Strategy
-from stock_indicator.portfolio import Portfolio
-from leveraged_trading.util import find_nearest_trading_date
+from stock_indicator.util import find_nearest_trading_date
 from stock_indicator.fetch_data import DataFetcher
 
 class Benchmark(Strategy):
@@ -20,7 +19,10 @@ class Benchmark(Strategy):
         '''
         '''
         repo = DataFetcher(ref_symbol)
-        repo.try_import_data(filename="data/"+ref_symbol+".csv", start_date=self.start_date)
+        repo.try_import_data(filename="data/"+ref_symbol+".csv",
+                            #  start_date="1990-01-03",
+                            start_date=self.start_date,
+                             update_data=True)
         
         price = repo.data["PRICE"]
         price = price.resample("B").ffill()

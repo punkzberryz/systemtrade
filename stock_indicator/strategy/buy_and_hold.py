@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 from stock_indicator.strategy.strategy import Strategy
 from stock_indicator.portfolio import Portfolio
-from leveraged_trading.util import find_nearest_trading_date
+from stock_indicator.util import find_nearest_trading_date
 
 class BuyAndHold(Strategy):
     def __init__(self,
