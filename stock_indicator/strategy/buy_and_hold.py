@@ -38,7 +38,7 @@ class BuyAndHold(Strategy):
             #get prices on particular date
             
             costs.iloc[i] = self.dca_capital/len(signals.columns) # buy everything equally
-            positions.iloc[i] = prices.iloc[i] / costs.iloc[i]
+            positions.iloc[i] =  costs.iloc[i] / prices.iloc[i]
             num_of_trades.iloc[i] = 1
         
         #let's cumulative sum

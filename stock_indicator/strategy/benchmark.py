@@ -37,7 +37,7 @@ class Benchmark(Strategy):
         for day in monthly_signals.index[start_idx:]:
             i = price.index.get_loc(day) #get index of the date
             cost.iloc[i] = self.dca_capital
-            position.iloc[i] = price.iloc[i] / cost.iloc[i]
+            position.iloc[i] =  cost.iloc[i] / price.iloc[i]
             num_of_trades.iloc[i] = 1
         
         #let's cumulative sum

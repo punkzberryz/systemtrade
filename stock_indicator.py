@@ -12,7 +12,7 @@ from stock_indicator.util import find_nearest_trading_date
 from scipy.stats import skew
 
 
-start_date = "2023-01-03"
+start_date = "2015-01-03"
 
 dca_capital = 1000
 instrument_list = [
@@ -58,6 +58,10 @@ instrument_list = [
     },
 ]
 port = Portfolio(instrument_list=instrument_list)
+refport = Portfolio(instrument_list=[{
+    'ticker': 'SPY',
+    'rules': default_rules
+}])
 benchmark = Benchmark(symbol="SPY",
                       dca_capital=dca_capital,
                       start_date=start_date)
