@@ -17,6 +17,7 @@ class Benchmark(Strategy):
     def trade(self,
               ref_symbol: str = "SPY"):
         '''
+        Perform benchmark trading strategy with robust date handling
         '''
         repo = DataFetcher(ref_symbol)
         repo.try_import_data(filename="data/"+ref_symbol+".csv",
@@ -31,14 +32,38 @@ class Benchmark(Strategy):
         num_of_trades = cost.copy()
         
         monthly_signals = price.resample("BMS").last()
+        # Use find_nearest_trading_date to get the exact date in the index
         start_date = find_nearest_trading_date(monthly_signals.index, self.start_date)
-        start_idx = monthly_signals.index.get_loc(pd.to_datetime(start_date))
+        # Add print statements for debugging
+        print(f"Start Date: {start_date}")
+        print(f"Monthly Signals Index: {monthly_signals.index}")
+        # start_idx = monthly_signals.index.get_loc(pd.to_datetime(start_date))
+        try:
+            start_idx = monthly_signals.index.get_loc(pd.to_datetime(start_date))
+        except KeyError:
+        # If exact date is not found, find the nearest date
+            nearest_date = monthly_signals.index[monthly_signals.index.get_indexer([pd.to_datetime(start_date)], method='nearest')[0]]
+            start_idx = monthly_signals.index.get_loc(nearest_date)
+            print(f"Adjusted start date to: {nearest_date}")
         
+    
         for day in monthly_signals.index[start_idx:]:
-            i = price.index.get_loc(day) #get index of the date
-            cost.iloc[i] = self.dca_capital
-            position.iloc[i] =  cost.iloc[i] / price.iloc[i]
-            num_of_trades.iloc[i] = 1
+            try:
+                 # Use get method or find nearest date to handle potential index issues
+           
+                i = price.index.get_loc(day) #get index of the date
+                cost.iloc[i] = self.dca_capital
+                position.iloc[i] =  cost.iloc[i] / price.iloc[i]
+                num_of_trades.iloc[i] = 1
+            except KeyError:
+                # Find nearest date if exact date is not in index
+                nearest_date = price.index[price.index.get_indexer([day], method='nearest')[0]]
+                i = price.index.get_loc(nearest_date)
+                
+                cost.iloc[i] = self.dca_capital
+                position.iloc[i] =  cost.iloc[i] / price.iloc[i]
+                num_of_trades.iloc[i] = 1
+                print(f"Adjusted day from {day} to {nearest_date}")
         
         #let's cumulative sum
         cost = cost.fillna(0).cumsum()

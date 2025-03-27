@@ -33,25 +33,36 @@ class DataFetcher():
         data = pd.read_csv(filename)
         data.set_index("Date", inplace=True)        
         data.index = pd.to_datetime(data.index, utc=True) #convert date column to datetime
+        # Set self.data first
         self.data = data
-        #check if latest date is today, if not, fetch new data and append
+        
+        # #check if latest date is today, if not, fetch new data and append
         latest_date = datetime.now(timezone.utc)
         if self.data.index[-1] < latest_date:
-            print("Fetching new data")
-            old_data = self.data.copy()
-            self.fetch_yf_data(start_date=self.data.index[-1], end_date=latest_date)
-            self.data = pd.concat([old_data[:-1], self.data], axis=0)
+          
+            overlap_start_date = self.data.index[-5]
+            print(f'Fetching new data between Date {overlap_start_date} and {latest_date}')
+            new_data = _fetch_yf_data_v2(self.symbol, start_date=overlap_start_date, end_date=latest_date)
+            merged_data  = pd.concat([self.data[:-5], new_data], axis=0)        
+            # Ensure no duplicate dates
+            merged_data = merged_data[~merged_data.index.duplicated(keep='last')]
             #convert date column to datetime
-            self.data.index = pd.to_datetime(data.index, utc=True)
+            merged_data.index = pd.to_datetime(merged_data.index, utc=True)
+            # Sort the index to ensure chronological order
+            merged_data.sort_index(inplace=True)
+            # Update self.data with the merged dataset
+            self.data = merged_data            
             print("Data appended successfully")
             if update_data:
                 self.export_data(filename)
+        
 
     def try_import_data(self, filename: str = None, start_date: Optional[Union[str, datetime]] = None, update_data: bool = False):
         try:
             self.import_data(filename, update_data=update_data)
             print("Data imported successfully")
-        except:
+        except Exception as e:
+            print(f"Error importing data: {e}")
             print("Data import failed, let's fetch data")
             self.fetch_yf_data(start_date=start_date)
             self.export_data(filename=filename)
