@@ -14,7 +14,7 @@ class BuyStrongSignal(Strategy):
                          dca_capital=dca_capital)
         self.trade(port=port)
     
-    def get_latest_indicator(self):
+    def get_latest_indicator(self, capital: float = 1e3):
         '''
             Get the latest indicator
         '''
@@ -28,6 +28,10 @@ class BuyStrongSignal(Strategy):
         print("Weights:")
         print("-"*75)
         print(weights)
+        print("-"*75)        
+        print("Weightsed Cost:")
+        print("-"*75)
+        print(weights * capital)
         print("-"*75)        
         
         

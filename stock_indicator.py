@@ -94,3 +94,52 @@ ax[1].set_title(f'Cumulative Returns of each instrument in Buy Strong Strategy')
 ax[1].legend(loc=2)
 plt.tight_layout()
 plt.show()
+
+#### let's plot the signal of last 3 months
+
+# Get the current date with UTC timezone
+current_date = pd.Timestamp.now(tz='UTC')
+
+# Calculate the date 90 days ago (with timezone)
+date_90_days_ago = current_date - pd.Timedelta(days=90)
+signals = buystrong.signals[buystrong.signals.index >= date_90_days_ago]
+prices = buystrong.prices[buystrong.prices.index >= date_90_days_ago]
+
+
+# Normalize the prices
+# normalized_prices = buystrong.prices[buystrong.prices.index >= date_90_days_ago].apply(lambda x: (x - x.mean()) / x.std())
+# prices_percentage_change = normalized_prices.pct_change().dropna()
+
+# Normalize the prices by scaling between 0 and 1 using the first value as reference
+prices = buystrong.prices[buystrong.prices.index >= date_90_days_ago]
+normalized_prices = prices.div(prices.iloc[0])
+
+
+# Plotting the signals with different colors and line styles
+# Plotting signals and prices in subplots
+fig, axs = plt.subplots(2, 1, figsize=(15, 12), sharex=True)
+colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+linestyles = ['-', '--', '-.', ':']
+
+# Plot signals on the first subplot
+for i, column in enumerate(signals.columns):
+    axs[0].plot(signals[column], linestyle=linestyles[i % len(linestyles)], color=colors[i % len(colors)], label=column)
+
+axs[0].set_ylabel('Signal Value')
+axs[0].set_title('Signals from Buy Strong Strategy (Last 3 Months)')
+axs[0].legend(loc='upper left')
+
+# Plot prices on the second subplot
+
+for i, column in enumerate(normalized_prices.columns):
+    axs[1].plot(normalized_prices[column], linestyle=linestyles[i % len(linestyles)], color=colors[i % len(colors)], label=column,
+                # marker='o'
+                )
+axs[1].set_xlabel('Date')
+axs[1].set_ylabel('Price Change ($/$)')
+axs[1].set_title('Normalized Prices of Instruments (Last 3 Months)')
+axs[1].legend(loc='upper left')
+
+# Adjust layout
+plt.tight_layout()
+plt.show()
